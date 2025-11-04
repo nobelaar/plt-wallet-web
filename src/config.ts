@@ -1,8 +1,8 @@
-export const RPC_ENDPOINT = 'https://rpc.cosmos.directory/cosmoshub'
-export const CHAIN_ID = 'cosmoshub-4'
-export const ADDRESS_PREFIX = 'cosmos'
-export const BASE_DENOM = 'uatom'
-export const DISPLAY_DENOM = 'ATOM'
+export const RPC_ENDPOINT = 'http://localhost:26657'
+export const CHAIN_ID = 'plt-test0'
+export const ADDRESS_PREFIX = 'plt'
+export const BASE_DENOM = 'uplt'
+export const DISPLAY_DENOM = 'PLT'
 export const DISPLAY_DECIMALS = 6
 export const DEFAULT_GAS_PRICE = `0.025${BASE_DENOM}`
 export const EXPLORER_BASE_URL = 'https://www.mintscan.io/cosmos/txs/'
