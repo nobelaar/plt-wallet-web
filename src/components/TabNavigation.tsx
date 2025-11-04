@@ -18,57 +18,55 @@ function cx(...classes: Array<string | false | null | undefined>) {
 
 export function TabNavigation({ items, current, onSelect, theme = 'dark' }: TabNavigationProps) {
   const isLight = theme === 'light'
-  const overlayClass = isLight
-    ? 'absolute inset-0 -z-10 rounded-2xl bg-[radial-gradient(circle_at_top,_rgba(148,163,209,0.25),_transparent_55%),_radial-gradient(circle_at_bottom,_rgba(134,239,172,0.2),_transparent_60%),_linear-gradient(120deg,_rgba(192,132,252,0.18),_rgba(56,189,248,0.12))] blur-2xl'
-    : 'absolute inset-0 -z-10 rounded-2xl bg-[radial-gradient(circle_at_top,_rgba(255,138,138,0.4),_transparent_55%),_radial-gradient(circle_at_bottom,_rgba(138,138,255,0.28),_transparent_60%),_linear-gradient(120deg,_rgba(106,255,192,0.45),_rgba(40,55,120,0.2))] blur-2xl'
-  const wrapperClass = isLight
-    ? 'flex flex-wrap gap-3 rounded-2xl border border-slate-200 bg-white/80 p-2 shadow-lg shadow-slate-200/60 backdrop-blur-sm'
-    : 'flex flex-wrap gap-3 rounded-2xl border border-white/10 bg-slate-950/70 p-2 shadow-lg shadow-indigo-500/20 backdrop-blur-xl'
+  const navClass = isLight
+    ? 'sticky bottom-0 z-20 border-t border-slate-200 bg-white/95 px-4 pb-5 pt-3 shadow-[0_-10px_30px_rgba(15,23,42,0.08)] backdrop-blur'
+    : 'sticky bottom-0 z-20 border-t border-white/10 bg-slate-950/80 px-4 pb-5 pt-3 shadow-[0_-12px_35px_rgba(8,47,73,0.45)] backdrop-blur'
+  const gridClass = 'grid grid-cols-4 gap-3'
+  const baseButtonClass = 'group flex flex-col items-center justify-center rounded-2xl border px-3 py-2 text-xs font-semibold transition'
 
   return (
-    <div className="relative">
-      <div className={overlayClass} />
-      <div className={wrapperClass}>
+    <nav className={navClass} role="tablist" aria-label="Navegación principal">
+      <div className={gridClass}>
         {items.map((item) => {
           const isActive = item.id === current
           return (
             <button
               key={item.id}
               type="button"
+              role="tab"
+              aria-selected={isActive}
               disabled={item.disabled}
               onClick={() => onSelect(item.id)}
               className={cx(
-                'group inline-flex min-w-[140px] flex-1 flex-col items-start justify-center rounded-xl border px-4 py-3 text-left transition',
+                baseButtonClass,
                 isActive
                   ? isLight
-                    ? 'border-slate-900/40 bg-slate-900/10 text-slate-900 shadow-md shadow-slate-300/60'
-                    : 'border-white/80 bg-white/10 text-white shadow-lg shadow-purple-600/30'
+                    ? 'border-sky-300 bg-sky-100 text-sky-700 shadow-inner shadow-sky-200/70'
+                    : 'border-sky-500/70 bg-sky-500/20 text-sky-200 shadow-lg shadow-sky-500/20'
                   : isLight
-                    ? 'border-slate-200 bg-white/60 text-slate-600 hover:border-slate-400 hover:bg-white/80 hover:text-slate-900'
-                    : 'border-white/10 bg-white/5 text-slate-200 hover:border-white/40 hover:bg-white/10 hover:text-white',
-                item.disabled &&
-                  !isActive &&
-                  (isLight
-                    ? 'cursor-not-allowed opacity-40 hover:border-slate-200 hover:bg-white/60 hover:text-slate-600'
-                    : 'cursor-not-allowed opacity-40 hover:border-white/10 hover:bg-white/5 hover:text-slate-200'),
+                    ? 'border-transparent bg-slate-100/60 text-slate-500 hover:border-slate-300/80 hover:bg-white hover:text-slate-900'
+                    : 'border-transparent bg-slate-900/40 text-slate-400 hover:border-slate-600 hover:bg-slate-900/60 hover:text-white',
+                item.disabled && !isActive && 'cursor-not-allowed opacity-40 hover:border-transparent hover:bg-transparent',
               )}
             >
-              <span className="text-sm font-semibold uppercase tracking-wide">{item.label}</span>
-              {item.description ? (
-                <span
-                  className={cx(
-                    'mt-1 text-xs transition-colors',
-                    isLight ? 'text-slate-500 group-hover:text-slate-700' : 'text-slate-300/80 group-hover:text-slate-100',
-                  )}
-                >
-                  {item.description}
-                </span>
-              ) : null}
+              <span className="text-[0.78rem] uppercase tracking-wide">{item.label}</span>
+              <span
+                className={cx(
+                  'mt-2 h-1.5 w-8 rounded-full transition',
+                  isActive
+                    ? isLight
+                      ? 'bg-sky-500'
+                      : 'bg-sky-400'
+                    : isLight
+                      ? 'bg-slate-300/60 group-hover:bg-slate-400'
+                      : 'bg-slate-700 group-hover:bg-slate-500',
+                )}
+              />
             </button>
           )
         })}
       </div>
-    </div>
+    </nav>
   )
 }
 

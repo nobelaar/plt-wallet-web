@@ -29,9 +29,10 @@ import BalancePanel from './components/BalancePanel'
 import './App.css'
 
 const tabs = [
-  { id: 'connect', label: 'Conexión', description: 'Configurar la red y el RPC' },
+  { id: 'home', label: 'Inicio', description: 'Resumen de la app y balances' },
   { id: 'wallet', label: 'Wallet', description: 'Importar, desbloquear y ver tu cuenta' },
   { id: 'send', label: 'Enviar', description: 'Transferir tokens y revisar movimientos' },
+  { id: 'settings', label: 'Ajustes', description: 'Conexión RPC y apariencia' },
 ]
 
 type TabId = (typeof tabs)[number]['id']
@@ -45,19 +46,12 @@ const resolveInitialTheme = (): ThemeMode => {
     if (stored === 'light' || stored === 'dark') {
       return stored
     }
-    try {
-      if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
-        return 'dark'
-      }
-    } catch {
-      // ignore matchMedia errors (e.g., on unsupported platforms)
-    }
   }
   return 'light'
 }
 
 function App() {
-  const [activeTab, setActiveTab] = useState<TabId>('connect')
+  const [activeTab, setActiveTab] = useState<TabId>('home')
   const [rpcUrl, setRpcUrl] = useState(DEFAULT_CHAIN.rpcUrl)
   const [expectedChainId, setExpectedChainId] = useState(DEFAULT_CHAIN.chainId)
   const [connectionError, setConnectionError] = useState<string | null>(null)
@@ -166,7 +160,7 @@ function App() {
     setActiveWallet(null)
     setBalance('0')
     setStatusMessage('Desconectado del nodo RPC.')
-    setActiveTab('connect')
+    setActiveTab('settings')
   }, [disconnectSigningClient, queryClient])
 
   const handleImportWallet = useCallback(
@@ -302,21 +296,24 @@ function App() {
   )
 
   const isLight = theme === 'light'
-  const pageClass = isLight ? 'min-h-screen bg-slate-50 pb-16 text-slate-900' : 'min-h-screen bg-slate-950 pb-16 text-slate-100'
-  const overlayClass = isLight
-    ? 'absolute inset-0 -z-10 bg-[radial-gradient(circle_at_top,_rgba(148,163,209,0.25),_transparent_55%),_radial-gradient(circle_at_bottom,_rgba(134,239,172,0.2),_transparent_60%),_linear-gradient(120deg,_rgba(192,132,252,0.18),_rgba(56,189,248,0.12))]'
-    : 'absolute inset-0 -z-10 bg-[radial-gradient(circle_at_top,_rgba(148,163,255,0.35),_transparent_55%),_radial-gradient(circle_at_bottom,_rgba(45,212,191,0.25),_transparent_60%),_linear-gradient(120deg,_rgba(255,138,168,0.28),_rgba(37,99,235,0.15))]'
-  const primarySectionClass = isLight
-    ? 'rounded-3xl border border-slate-200 bg-white/85 p-6 shadow-lg shadow-slate-200/60 backdrop-blur-sm'
-    : 'rounded-3xl border border-white/10 bg-slate-900/70 p-6 shadow-xl shadow-indigo-500/20 backdrop-blur-xl'
-  const secondarySectionClass = isLight
-    ? 'rounded-3xl border border-slate-200 bg-white/90 p-6 shadow-md shadow-slate-200/50'
-    : 'rounded-3xl border border-white/10 bg-slate-900/60 p-6 shadow-lg shadow-purple-500/20'
-  const mutedTextClass = isLight ? 'text-slate-600' : 'text-slate-300'
-  const headingTextClass = isLight ? 'text-slate-900' : 'text-white'
+  const pageClass = isLight
+    ? 'min-h-screen bg-gradient-to-b from-slate-100 via-slate-100 to-slate-200 text-slate-900'
+    : 'min-h-screen bg-gradient-to-b from-slate-950 via-slate-950 to-slate-900 text-slate-100'
+  const appShellClass = 'mx-auto flex min-h-screen w-full max-w-md flex-col'
+  const mainClass = 'flex-1 overflow-y-auto px-5 pb-28 pt-6'
+  const headerTitleClass = isLight ? 'text-2xl font-semibold text-slate-900' : 'text-2xl font-semibold text-white'
+  const headerSubtitleClass = isLight ? 'text-sm text-slate-500' : 'text-sm text-slate-400'
+  const sectionTitleClass = isLight ? 'text-lg font-semibold text-slate-900' : 'text-lg font-semibold text-white'
+  const cardClass = isLight
+    ? 'rounded-3xl border border-slate-200 bg-white/95 p-6 shadow-lg shadow-slate-200/70 backdrop-blur'
+    : 'rounded-3xl border border-white/10 bg-slate-900/80 p-6 shadow-xl shadow-indigo-500/25 backdrop-blur'
+  const secondaryCardClass = isLight
+    ? 'rounded-3xl border border-slate-200 bg-white/90 p-6 shadow-md shadow-slate-200/60'
+    : 'rounded-3xl border border-white/10 bg-slate-900/70 p-6 shadow-lg shadow-purple-500/30'
+  const mutedTextClass = isLight ? 'text-sm text-slate-500' : 'text-sm text-slate-400'
   const infoCardClass = isLight
-    ? 'rounded-2xl border border-slate-200 bg-white/70 p-4 text-slate-600 shadow-sm shadow-slate-200/40'
-    : 'rounded-2xl border border-white/5 bg-slate-950/40 p-4 text-slate-300'
+    ? 'rounded-2xl border border-slate-200 bg-white/80 p-4 text-sm text-slate-600 shadow-inner shadow-slate-200/40'
+    : 'rounded-2xl border border-white/10 bg-slate-900/70 p-4 text-sm text-slate-300'
   const statusClass = isLight
     ? 'rounded-2xl border border-emerald-500/20 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 shadow-sm shadow-emerald-200/60'
     : 'rounded-2xl border border-emerald-400/30 bg-emerald-400/10 px-4 py-3 text-sm text-emerald-100 shadow-lg shadow-emerald-500/20'
@@ -324,124 +321,131 @@ function App() {
     ? 'rounded-2xl border border-rose-500/20 bg-rose-50 px-4 py-3 text-sm text-rose-700 shadow-sm shadow-rose-200/60'
     : 'rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-100 shadow-lg shadow-rose-500/20'
   const inactiveSendClass = isLight
-    ? 'rounded-3xl border border-slate-200 bg-white/85 p-6 text-center text-sm text-slate-600 shadow-md shadow-slate-200/50'
-    : 'rounded-3xl border border-white/10 bg-slate-900/60 p-6 text-center text-sm text-slate-300 shadow-lg shadow-purple-500/20'
+    ? 'rounded-3xl border border-slate-200 bg-white/90 p-6 text-center text-sm text-slate-600 shadow-md shadow-slate-200/50'
+    : 'rounded-3xl border border-white/10 bg-slate-900/70 p-6 text-center text-sm text-slate-300 shadow-lg shadow-purple-500/20'
+  const settingsCardHeaderClass = isLight
+    ? 'flex items-center justify-between text-slate-900'
+    : 'flex items-center justify-between text-white'
+  const toggleButtonClass = isLight
+    ? 'inline-flex items-center gap-2 rounded-full border border-slate-300 bg-white/90 px-4 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-100'
+    : 'inline-flex items-center gap-2 rounded-full border border-white/20 bg-slate-900/80 px-4 py-2 text-sm font-medium text-slate-100 shadow-lg transition hover:border-white/40 hover:bg-slate-900'
 
   return (
     <div className={pageClass}>
-      <div className={overlayClass} />
-      <div className="mx-auto flex max-w-6xl flex-col gap-8 px-4 py-12">
-        <div className="flex items-center justify-end">
-          <button
-            type="button"
-            onClick={toggleTheme}
-            className={
-              isLight
-                ? 'inline-flex items-center rounded-full border border-slate-300 bg-white/90 px-4 py-2 text-sm font-medium text-slate-700 shadow-sm shadow-slate-200/60 transition hover:bg-slate-100'
-                : 'inline-flex items-center rounded-full border border-white/20 bg-slate-900/70 px-4 py-2 text-sm font-medium text-slate-100 shadow-lg shadow-indigo-500/20 transition hover:border-white/40 hover:bg-slate-900'
-            }
-          >
-            {isLight ? 'Modo oscuro' : 'Modo claro'}
-          </button>
-        </div>
+      <div className={appShellClass}>
+        <main className={mainClass}>
+          <header className="mb-6">
+            <h1 className={headerTitleClass}>PLT Wallet</h1>
+            <p className={headerSubtitleClass}>Gestioná tu red, tu wallet y tus envíos desde una experiencia tipo app móvil.</p>
+          </header>
 
-        <section className={primarySectionClass}>
-          <h2 className={`text-lg font-semibold ${headingTextClass}`}>Seguridad y privacidad</h2>
-          <ul className="mt-4 grid gap-3 text-sm md:grid-cols-3">
-            <li className={infoCardClass}>Nunca compartas tu mnemonic o clave privada. Esta app no la registra en ningún servidor.</li>
-            <li className={infoCardClass}>
-              Si decidís guardar la wallet en este navegador, se cifrará con la contraseña que indiques. Sin contraseña, no se
-              almacena nada.
-            </li>
-            <li className={infoCardClass}>Hacé un backup físico (papel) de tu mnemonic y guardalo en un lugar seguro.</li>
-          </ul>
-        </section>
+          {statusMessage ? <div className={`mb-4 ${statusClass}`}>{statusMessage}</div> : null}
+          {errorMessage ? <div className={`mb-4 ${errorClass}`}>{errorMessage}</div> : null}
+
+          {activeTab === 'home' ? (
+            <div className="space-y-5">
+              <section className={cardClass}>
+                <h2 className={sectionTitleClass}>Recomendaciones rápidas</h2>
+                <ul className="mt-4 space-y-3">
+                  <li className={infoCardClass}>Nunca compartas tu mnemonic o clave privada. Esta app no la registra en ningún servidor.</li>
+                  <li className={infoCardClass}>
+                    Si decidís guardar la wallet en este navegador, se cifrará con la contraseña que indiques. Sin contraseña, no se
+                    almacena nada.
+                  </li>
+                  <li className={infoCardClass}>Hacé un backup físico (papel) de tu mnemonic y guardalo en un lugar seguro.</li>
+                </ul>
+              </section>
+
+              <BalancePanel client={queryClient} theme={theme} />
+            </div>
+          ) : null}
+
+          {activeTab === 'wallet' ? (
+            <div className="space-y-5">
+              {!activeWallet && storedWallet ? (
+                <section className={secondaryCardClass}>
+                  <h2 className={sectionTitleClass}>Desbloquear wallet guardada</h2>
+                  <p className={mutedTextClass}>Ingresá la contraseña para restaurar la wallet cifrada en este navegador.</p>
+                  <div className="mt-5">
+                    <StoredWalletUnlock
+                      theme={theme}
+                      onUnlock={handleUnlockWallet}
+                      onForget={handleForgetWallet}
+                      loading={isUnlocking}
+                      error={unlockError}
+                    />
+                  </div>
+                </section>
+              ) : null}
+
+              {!activeWallet ? (
+                <section className={secondaryCardClass}>
+                  <h2 className={sectionTitleClass}>Importar wallet</h2>
+                  <p className={mutedTextClass}>Elegí el tipo de clave, ingresá tus credenciales y definí si querés guardarla cifrada.</p>
+                  <div className="mt-5">
+                    <WalletImportForm theme={theme} onSubmit={handleImportWallet} disabled={!isConnected} loading={isImporting} />
+                  </div>
+                </section>
+              ) : null}
+
+              {activeWallet ? (
+                <AccountSummary theme={theme} wallet={activeWallet} balance={displayBalance} onCopy={handleCopyAddress} />
+              ) : null}
+            </div>
+          ) : null}
+
+          {activeTab === 'send' ? (
+            activeWallet ? (
+              <SendTokensForm
+                theme={theme}
+                client={signingClient}
+                senderAddress={activeWallet.address}
+                balanceBaseAmount={balance}
+                denom={DISPLAY_DENOM}
+                decimals={DEFAULT_CHAIN.denomDecimals}
+                gasPrice={gasPrice}
+                baseDenom={DEFAULT_CHAIN.baseDenom}
+                explorerBaseUrl={DEFAULT_CHAIN.explorerBaseUrl}
+                onRefreshBalance={refreshBalance}
+                onStatusMessage={setStatusMessage}
+              />
+            ) : (
+              <div className={inactiveSendClass}>Importá o desbloqueá una wallet antes de enviar tokens.</div>
+            )
+          ) : null}
+
+          {activeTab === 'settings' ? (
+            <div className="space-y-5">
+              <section className={cardClass}>
+                <div className={settingsCardHeaderClass}>
+                  <div>
+                    <h2 className={sectionTitleClass}>Apariencia</h2>
+                    <p className={mutedTextClass}>Elegí el modo de visualización.</p>
+                  </div>
+                  <button type="button" onClick={toggleTheme} className={toggleButtonClass}>
+                    {isLight ? 'Modo oscuro' : 'Modo claro'}
+                  </button>
+                </div>
+              </section>
+
+              <ConnectView
+                theme={theme}
+                rpcUrl={rpcUrl}
+                onRpcUrlChange={setRpcUrl}
+                expectedChainId={expectedChainId}
+                onExpectedChainIdChange={setExpectedChainId}
+                chainId={chainId}
+                height={height}
+                isConnected={isConnected}
+                error={connectionError}
+                onConnect={handleConnect}
+                onDisconnect={handleDisconnect}
+              />
+            </div>
+          ) : null}
+        </main>
 
         <TabNavigation items={tabItems} current={activeTab} onSelect={setActiveTab} theme={theme} />
-
-        {statusMessage ? (
-          <div className={statusClass}>{statusMessage}</div>
-        ) : null}
-        {errorMessage ? (
-          <div className={errorClass}>{errorMessage}</div>
-        ) : null}
-
-        {activeTab === 'connect' ? (
-          <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
-            <ConnectView
-              theme={theme}
-              rpcUrl={rpcUrl}
-              onRpcUrlChange={setRpcUrl}
-              expectedChainId={expectedChainId}
-              onExpectedChainIdChange={setExpectedChainId}
-              chainId={chainId}
-              height={height}
-              isConnected={isConnected}
-              error={connectionError}
-              onConnect={handleConnect}
-              onDisconnect={handleDisconnect}
-            />
-            <BalancePanel client={queryClient} theme={theme} />
-          </div>
-        ) : null}
-
-        {activeTab === 'wallet' ? (
-          <div className="space-y-6">
-            {!activeWallet && storedWallet ? (
-              <section className={secondarySectionClass}>
-                <h2 className={`text-lg font-semibold ${headingTextClass}`}>Desbloquear wallet guardada</h2>
-                <p className={`mt-1 text-sm ${mutedTextClass}`}>
-                  Ingresá la contraseña para restaurar la wallet cifrada en este navegador.
-                </p>
-                <div className="mt-5">
-                  <StoredWalletUnlock
-                    theme={theme}
-                    onUnlock={handleUnlockWallet}
-                    onForget={handleForgetWallet}
-                    loading={isUnlocking}
-                    error={unlockError}
-                  />
-                </div>
-              </section>
-            ) : null}
-
-            {!activeWallet ? (
-              <section className={secondarySectionClass}>
-                <h2 className={`text-lg font-semibold ${headingTextClass}`}>Importar wallet</h2>
-                <p className={`mt-1 text-sm ${mutedTextClass}`}>
-                  Elegí el tipo de clave, ingresá tus credenciales y decidí si querés guardarla cifrada en este navegador.
-                </p>
-                <div className="mt-5">
-                  <WalletImportForm theme={theme} onSubmit={handleImportWallet} disabled={!isConnected} loading={isImporting} />
-                </div>
-              </section>
-            ) : null}
-
-            {activeWallet ? (
-              <AccountSummary theme={theme} wallet={activeWallet} balance={displayBalance} onCopy={handleCopyAddress} />
-            ) : null}
-          </div>
-        ) : null}
-
-        {activeTab === 'send' ? (
-          activeWallet ? (
-            <SendTokensForm
-              theme={theme}
-              client={signingClient}
-              senderAddress={activeWallet.address}
-              balanceBaseAmount={balance}
-              denom={DISPLAY_DENOM}
-              decimals={DEFAULT_CHAIN.denomDecimals}
-              gasPrice={gasPrice}
-              baseDenom={DEFAULT_CHAIN.baseDenom}
-              explorerBaseUrl={DEFAULT_CHAIN.explorerBaseUrl}
-              onRefreshBalance={refreshBalance}
-              onStatusMessage={setStatusMessage}
-            />
-          ) : (
-            <div className={inactiveSendClass}>Importá o desbloqueá una wallet antes de enviar tokens.</div>
-          )
-        ) : null}
       </div>
     </div>
   )
