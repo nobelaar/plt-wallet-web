@@ -1,4 +1,4 @@
-export const DEFAULT_CHAIN_ID = 'plt-local'
+export const DEFAULT_CHAIN_ID = 'plt-test0'
 export const DEFAULT_RPC = 'http://localhost:26657'
 
 export const DENOM = 'uplt'

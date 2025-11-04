@@ -3,9 +3,6 @@
 @tailwind utilities;
 
 :root {
-<<<<<<< HEAD
-  color-scheme: dark;
-=======
   font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   line-height: 1.6;
   font-weight: 400;
@@ -15,7 +12,6 @@
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
->>>>>>> codex/implement-wallet-import-and-token-transfer
 }
 
 * {
@@ -24,17 +20,6 @@
 
 body {
   margin: 0;
-<<<<<<< HEAD
-  min-height: 100vh;
-  font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  background-color: #0a0f1c;
-  color: #e5e7eb;
-}
-
-#root {
-  min-height: 100vh;
-}
-=======
   min-height: 100vh;
 }
 
@@ -46,4 +31,3 @@ a {
 code {
   font-family: 'Roboto Mono', 'SFMono-Regular', 'Menlo', monospace;
 }
->>>>>>> codex/implement-wallet-import-and-token-transfer
