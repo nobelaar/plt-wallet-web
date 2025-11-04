@@ -11,6 +11,7 @@ interface ConnectViewProps {
   error: string | null
   onConnect: () => Promise<void>
   onDisconnect: () => void
+  theme?: 'light' | 'dark'
 }
 
 export function ConnectView({
@@ -24,22 +25,46 @@ export function ConnectView({
   error,
   onConnect,
   onDisconnect,
+  theme = 'dark',
 }: ConnectViewProps) {
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     await onConnect()
   }
 
+  const isLight = theme === 'light'
+  const sectionClass = isLight
+    ? 'rounded-2xl border border-slate-200 bg-white/85 p-6 shadow-lg shadow-slate-200/50 backdrop-blur-sm'
+    : 'rounded-2xl border border-slate-700/60 bg-slate-900/60 p-6 shadow-2xl shadow-blue-900/30 backdrop-blur-sm'
+  const headingClass = isLight ? 'text-xl font-semibold text-slate-900' : 'text-xl font-semibold text-slate-100'
+  const descriptionClass = isLight ? 'mt-1 text-sm text-slate-500' : 'mt-1 text-sm text-slate-400'
+  const labelClass = isLight ? 'text-sm font-medium text-slate-700' : 'text-sm font-medium text-slate-200'
+  const inputClass = isLight
+    ? 'w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-inner focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200'
+    : 'w-full rounded-lg border border-slate-700 bg-slate-950/60 px-3 py-2 text-sm text-slate-100 shadow-inner focus:border-plt-primary focus:outline-none focus:ring-2 focus:ring-plt-primary/40'
+  const primaryButtonClass = isLight
+    ? 'inline-flex items-center justify-center rounded-lg border border-sky-300 bg-sky-500 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-sky-600 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-200 disabled:text-slate-400'
+    : 'inline-flex items-center justify-center rounded-lg border border-slate-500/40 bg-[#0077ff] px-4 py-2 text-sm font-semibold text-white shadow-lg transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:border-slate-700 disabled:bg-slate-700'
+  const secondaryButtonClass = isLight
+    ? 'inline-flex items-center justify-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-slate-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400'
+    : 'inline-flex items-center justify-center rounded-lg border border-slate-600 bg-transparent px-4 py-2 text-sm font-semibold text-slate-200 transition hover:border-slate-400 hover:text-white disabled:cursor-not-allowed disabled:border-slate-700 disabled:text-slate-500'
+  const statusRowClass = isLight
+    ? 'flex items-center justify-between rounded-lg border border-slate-200 bg-white/80 px-3 py-2'
+    : 'flex items-center justify-between rounded-lg border border-slate-700/60 bg-slate-900/60 px-3 py-2'
+  const stateLabelClass = isLight ? 'text-slate-500' : 'text-slate-400'
+  const stateValueClass = isLight ? 'text-slate-700' : 'text-slate-200'
+  const errorClass = isLight
+    ? 'rounded-lg border border-rose-500/25 bg-rose-50 px-3 py-2 text-rose-600'
+    : 'rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-rose-200'
+
   return (
-    <section className="rounded-2xl border border-slate-700/60 bg-slate-900/60 p-6 shadow-2xl shadow-blue-900/30 backdrop-blur-sm">
-      <h2 className="text-xl font-semibold text-slate-100">Conexión RPC</h2>
-      <p className="mt-1 text-sm text-slate-400">
-        Configurá la URL del nodo y conectate para obtener información en vivo.
-      </p>
+    <section className={sectionClass}>
+      <h2 className={headingClass}>Conexión RPC</h2>
+      <p className={descriptionClass}>Configurá la URL del nodo y conectate para obtener información en vivo.</p>
 
       <form onSubmit={handleSubmit} className="mt-6 space-y-4">
         <div className="space-y-2">
-          <label htmlFor="rpcUrl" className="text-sm font-medium text-slate-200">
+          <label htmlFor="rpcUrl" className={labelClass}>
             RPC URL
           </label>
           <input
@@ -48,12 +73,12 @@ export function ConnectView({
             value={rpcUrl}
             onChange={(event) => onRpcUrlChange(event.target.value)}
             placeholder="http://localhost:26657"
-            className="w-full rounded-lg border border-slate-700 bg-slate-950/60 px-3 py-2 text-sm text-slate-100 shadow-inner focus:border-plt-primary focus:outline-none focus:ring-2 focus:ring-plt-primary/40"
+            className={inputClass}
           />
         </div>
 
         <div className="space-y-2">
-          <label htmlFor="chainId" className="text-sm font-medium text-slate-200">
+          <label htmlFor="chainId" className={labelClass}>
             Chain ID esperado
           </label>
           <input
@@ -62,7 +87,7 @@ export function ConnectView({
             value={expectedChainId}
             onChange={(event) => onExpectedChainIdChange(event.target.value)}
             placeholder="plt-local"
-            className="w-full rounded-lg border border-slate-700 bg-slate-950/60 px-3 py-2 text-sm text-slate-100 shadow-inner focus:border-plt-primary focus:outline-none focus:ring-2 focus:ring-plt-primary/40"
+            className={inputClass}
           />
         </div>
 
@@ -70,7 +95,7 @@ export function ConnectView({
           <button
             type="submit"
             disabled={isConnected}
-            className="inline-flex items-center justify-center rounded-lg border border-slate-500/40 bg-[#0077ff] px-4 py-2 text-sm font-semibold text-white shadow-lg transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:border-slate-700 disabled:bg-slate-700"
+            className={primaryButtonClass}
           >
             {isConnected ? 'Conectado' : 'Conectar'}
           </button>
@@ -78,7 +103,7 @@ export function ConnectView({
             type="button"
             onClick={onDisconnect}
             disabled={!isConnected}
-            className="inline-flex items-center justify-center rounded-lg border border-slate-600 bg-transparent px-4 py-2 text-sm font-semibold text-slate-200 transition hover:border-slate-400 hover:text-white disabled:cursor-not-allowed disabled:border-slate-700 disabled:text-slate-500"
+            className={secondaryButtonClass}
           >
             Desconectar
           </button>
@@ -86,24 +111,22 @@ export function ConnectView({
       </form>
 
       <div className="mt-6 space-y-2 text-sm">
-        <p className="flex items-center justify-between rounded-lg border border-slate-700/60 bg-slate-900/60 px-3 py-2">
-          <span className="text-slate-400">Estado</span>
-          <span className={isConnected ? 'text-emerald-400' : error ? 'text-rose-400' : 'text-slate-300'}>
+        <p className={statusRowClass}>
+          <span className={stateLabelClass}>Estado</span>
+          <span className={isConnected ? (isLight ? 'text-emerald-600' : 'text-emerald-400') : error ? 'text-rose-500' : stateValueClass}>
             {isConnected ? 'Conectado' : error ? 'Error' : 'Desconectado'}
           </span>
         </p>
-        <p className="flex items-center justify-between rounded-lg border border-slate-700/60 bg-slate-900/60 px-3 py-2">
-          <span className="text-slate-400">Chain ID detectado</span>
-          <span className="text-slate-200">{chainId ?? '—'}</span>
+        <p className={statusRowClass}>
+          <span className={stateLabelClass}>Chain ID detectado</span>
+          <span className={stateValueClass}>{chainId ?? '—'}</span>
         </p>
-        <p className="flex items-center justify-between rounded-lg border border-slate-700/60 bg-slate-900/60 px-3 py-2">
-          <span className="text-slate-400">Altura de bloque</span>
-          <span className="text-slate-200">{height > 0 ? height : '—'}</span>
+        <p className={statusRowClass}>
+          <span className={stateLabelClass}>Altura de bloque</span>
+          <span className={stateValueClass}>{height > 0 ? height : '—'}</span>
         </p>
         {error && (
-          <p className="rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-rose-200">
-            {error}
-          </p>
+          <p className={errorClass}>{error}</p>
         )}
       </div>
     </section>

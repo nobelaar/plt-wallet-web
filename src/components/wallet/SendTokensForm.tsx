@@ -14,6 +14,7 @@ interface SendTokensFormProps {
   explorerBaseUrl: string
   onRefreshBalance: () => Promise<void>
   onStatusMessage: (message: string) => void
+  theme?: 'light' | 'dark'
 }
 
 const DEFAULT_GAS_LIMIT = 200000
@@ -29,6 +30,7 @@ export function SendTokensForm({
   explorerBaseUrl,
   onRefreshBalance,
   onStatusMessage,
+  theme = 'dark',
 }: SendTokensFormProps) {
   const [destination, setDestination] = useState('')
   const [amountInput, setAmountInput] = useState('')
@@ -43,6 +45,37 @@ export function SendTokensForm({
     () => feeAmount.toLocaleString('es-AR', { maximumFractionDigits: decimals }),
     [feeAmount, decimals],
   )
+  const isLight = theme === 'light'
+  const containerClass = isLight
+    ? 'space-y-6 rounded-2xl border border-slate-200 bg-white/90 p-6 shadow-lg shadow-slate-200/60'
+    : 'space-y-6 rounded-2xl border border-white/10 bg-slate-900/70 p-6 shadow-xl shadow-indigo-500/20'
+  const headingClass = isLight ? 'text-lg font-semibold text-slate-900' : 'text-lg font-semibold text-white'
+  const labelClass = isLight ? 'text-xs font-semibold uppercase tracking-wide text-slate-600' : 'text-xs font-semibold uppercase tracking-wide text-slate-300'
+  const inputClass = isLight
+    ? 'w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200'
+    : 'w-full rounded-xl border border-white/10 bg-slate-950/50 px-3 py-2 text-sm text-slate-100 focus:border-white/40 focus:outline-none focus:ring-2 focus:ring-white/20'
+  const gradientButtonClass = isLight
+    ? 'inline-flex items-center justify-center rounded-xl border border-sky-300 bg-gradient-to-r from-sky-300 via-indigo-300 to-emerald-300 px-4 py-2 text-sm font-semibold text-slate-800 shadow-sm shadow-slate-200/70 transition hover:shadow-slate-300/80 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400'
+    : 'inline-flex items-center justify-center rounded-xl border border-white/30 bg-gradient-to-r from-[#ff8a8a] via-[#8a8aff] to-[#6affc0] px-4 py-2 text-sm font-semibold text-slate-900 shadow-lg shadow-purple-500/30 transition hover:shadow-purple-500/50'
+  const secondaryButtonClass = isLight
+    ? 'inline-flex items-center justify-center rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-slate-50'
+    : 'inline-flex items-center justify-center rounded-xl border border-white/10 bg-transparent px-4 py-2 text-sm font-semibold text-slate-200 transition hover:border-white/40 hover:text-white'
+  const errorClass = isLight
+    ? 'rounded-xl border border-rose-500/25 bg-rose-50 px-3 py-2 text-sm text-rose-600'
+    : 'rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-200'
+  const resultClass = isLight
+    ? 'space-y-2 rounded-xl border border-emerald-500/25 bg-emerald-50 px-3 py-2 text-sm text-emerald-600'
+    : 'space-y-2 rounded-xl border border-emerald-400/30 bg-emerald-400/10 px-3 py-2 text-sm text-emerald-200'
+  const confirmBoxClass = isLight
+    ? 'space-y-3 rounded-2xl border border-amber-400/30 bg-amber-50 p-4 text-sm text-amber-700'
+    : 'space-y-3 rounded-2xl border border-amber-400/40 bg-amber-400/10 p-4 text-sm text-amber-100'
+  const confirmHeadingClass = isLight ? 'text-base font-semibold text-amber-700' : 'text-base font-semibold text-amber-50'
+  const confirmPrimaryButtonClass = isLight
+    ? 'inline-flex items-center justify-center rounded-xl border border-amber-300 bg-amber-400 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-amber-500 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-200 disabled:text-slate-400'
+    : 'inline-flex items-center justify-center rounded-xl border border-white/30 bg-white/80 px-4 py-2 text-sm font-semibold text-slate-900 shadow-lg shadow-amber-500/30 transition hover:shadow-amber-500/50 disabled:cursor-not-allowed disabled:border-white/10 disabled:bg-white/10 disabled:text-slate-300'
+  const confirmSecondaryButtonClass = isLight
+    ? 'inline-flex items-center justify-center rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-slate-50'
+    : 'inline-flex items-center justify-center rounded-xl border border-white/10 bg-transparent px-4 py-2 text-sm font-semibold text-slate-200 transition hover:border-white/40 hover:text-white'
 
   const available = Number(balanceBaseAmount)
 
@@ -140,11 +173,11 @@ export function SendTokensForm({
   }
 
   return (
-    <div className="space-y-6 rounded-2xl border border-white/10 bg-slate-900/70 p-6 shadow-xl shadow-indigo-500/20">
-      <h3 className="text-lg font-semibold text-white">Enviar tokens</h3>
+    <div className={containerClass}>
+      <h3 className={headingClass}>Enviar tokens</h3>
       <form onSubmit={prepareSend} className="space-y-4">
         <div className="space-y-2">
-          <label htmlFor="destination" className="text-xs font-semibold uppercase tracking-wide text-slate-300">
+          <label htmlFor="destination" className={labelClass}>
             Dirección destino
           </label>
           <input
@@ -152,13 +185,13 @@ export function SendTokensForm({
             value={destination}
             onChange={(event) => setDestination(event.target.value)}
             placeholder="plt1..."
-            className="w-full rounded-xl border border-white/10 bg-slate-950/50 px-3 py-2 text-sm text-slate-100 focus:border-white/40 focus:outline-none focus:ring-2 focus:ring-white/20"
+            className={inputClass}
           />
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-2">
-            <label htmlFor="amount" className="text-xs font-semibold uppercase tracking-wide text-slate-300">
+            <label htmlFor="amount" className={labelClass}>
               Monto ({denom})
             </label>
             <input
@@ -168,28 +201,33 @@ export function SendTokensForm({
               step="0.000001"
               value={amountInput}
               onChange={(event) => setAmountInput(event.target.value)}
-              className="w-full rounded-xl border border-white/10 bg-slate-950/50 px-3 py-2 text-sm text-slate-100 focus:border-white/40 focus:outline-none focus:ring-2 focus:ring-white/20"
+              className={inputClass}
             />
           </div>
           <div className="space-y-2">
-            <label htmlFor="memo" className="text-xs font-semibold uppercase tracking-wide text-slate-300">
+            <label htmlFor="memo" className={labelClass}>
               Memo (opcional)
             </label>
             <input
               id="memo"
               value={memo}
               onChange={(event) => setMemo(event.target.value)}
-              className="w-full rounded-xl border border-white/10 bg-slate-950/50 px-3 py-2 text-sm text-slate-100 focus:border-white/40 focus:outline-none focus:ring-2 focus:ring-white/20"
+              className={inputClass}
               placeholder="Referencia"
             />
           </div>
         </div>
 
-        {error ? <p className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-200">{error}</p> : null}
+        {error ? <p className={errorClass}>{error}</p> : null}
         {resultHash ? (
-          <div className="space-y-2 rounded-xl border border-emerald-400/30 bg-emerald-400/10 px-3 py-2 text-sm text-emerald-200">
+          <div className={resultClass}>
             <p>Transacción enviada. Hash: {resultHash}</p>
-            <a href={`${explorerBaseUrl}${resultHash}`} target="_blank" rel="noreferrer" className="text-emerald-100 underline">
+            <a
+              href={`${explorerBaseUrl}${resultHash}`}
+              target="_blank"
+              rel="noreferrer"
+              className={isLight ? 'text-emerald-600 underline' : 'text-emerald-100 underline'}
+            >
               Ver en explorer
             </a>
           </div>
@@ -198,14 +236,14 @@ export function SendTokensForm({
         <div className="flex flex-wrap items-center gap-3">
           <button
             type="submit"
-            className="inline-flex items-center justify-center rounded-xl border border-white/30 bg-gradient-to-r from-[#ff8a8a] via-[#8a8aff] to-[#6affc0] px-4 py-2 text-sm font-semibold text-slate-900 shadow-lg shadow-purple-500/30 transition hover:shadow-purple-500/50"
+            className={gradientButtonClass}
             disabled={isSending}
           >
             Revisar y confirmar
           </button>
           <button
             type="button"
-            className="inline-flex items-center justify-center rounded-xl border border-white/10 bg-transparent px-4 py-2 text-sm font-semibold text-slate-200 transition hover:border-white/40 hover:text-white"
+            className={secondaryButtonClass}
             onClick={resetState}
           >
             Reiniciar
@@ -214,8 +252,8 @@ export function SendTokensForm({
       </form>
 
       {showConfirm ? (
-        <div className="space-y-3 rounded-2xl border border-amber-400/40 bg-amber-400/10 p-4 text-sm text-amber-100">
-          <h4 className="text-base font-semibold text-amber-50">Confirmar envío</h4>
+        <div className={confirmBoxClass}>
+          <h4 className={confirmHeadingClass}>Confirmar envío</h4>
           <p>
             Vas a enviar <strong>{amountInput} {denom}</strong> a <strong>{destination}</strong>.
           </p>
@@ -226,7 +264,7 @@ export function SendTokensForm({
               type="button"
               onClick={handleSend}
               disabled={isSending}
-              className="inline-flex items-center justify-center rounded-xl border border-white/30 bg-white/80 px-4 py-2 text-sm font-semibold text-slate-900 shadow-lg shadow-amber-500/30 transition hover:shadow-amber-500/50 disabled:cursor-not-allowed disabled:border-white/10 disabled:bg-white/10 disabled:text-slate-300"
+              className={confirmPrimaryButtonClass}
             >
               {isSending ? 'Enviando…' : 'Confirmar y enviar'}
             </button>
@@ -236,7 +274,7 @@ export function SendTokensForm({
                 setShowConfirm(false)
                 setFeeAmount(0)
               }}
-              className="inline-flex items-center justify-center rounded-xl border border-white/10 bg-transparent px-4 py-2 text-sm font-semibold text-slate-200 transition hover:border-white/40 hover:text-white"
+              className={confirmSecondaryButtonClass}
             >
               Cancelar
             </button>

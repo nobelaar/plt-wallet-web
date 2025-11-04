@@ -7,38 +7,58 @@ interface AccountSummaryProps {
   wallet: ActiveWallet
   balance: string
   onCopy: () => void
+  theme?: 'light' | 'dark'
 }
 
-export function AccountSummary({ wallet, balance, onCopy }: AccountSummaryProps) {
+export function AccountSummary({ wallet, balance, onCopy, theme = 'dark' }: AccountSummaryProps) {
+  const isLight = theme === 'light'
+  const infoCardClass = isLight
+    ? 'space-y-4 rounded-2xl border border-slate-200 bg-white/90 p-6 shadow-md shadow-slate-200/50'
+    : 'space-y-4 rounded-2xl border border-white/10 bg-slate-900/70 p-6 shadow-lg shadow-indigo-500/20'
+  const headingClass = isLight ? 'text-lg font-semibold text-slate-900' : 'text-lg font-semibold text-white'
+  const labelClass = isLight ? 'text-slate-600' : 'text-slate-300'
+  const valueBoxClass = isLight
+    ? 'break-all rounded-xl border border-slate-200 bg-white/80 px-3 py-2 font-mono text-sm text-slate-800 shadow-inner'
+    : 'break-all rounded-xl border border-white/10 bg-slate-950/70 px-3 py-2 font-mono text-sm text-slate-100'
+  const balanceBoxClass = isLight
+    ? 'rounded-xl border border-emerald-400/40 bg-emerald-50 px-3 py-2 text-lg font-semibold text-emerald-600'
+    : 'rounded-xl border border-emerald-400/30 bg-emerald-400/10 px-3 py-2 text-lg font-semibold text-emerald-200'
+  const copyButtonClass = isLight
+    ? 'inline-flex items-center justify-center rounded-xl border border-slate-300 bg-gradient-to-r from-sky-200 via-indigo-200 to-emerald-200 px-4 py-2 text-sm font-semibold text-slate-800 shadow-sm shadow-slate-200/60 transition hover:shadow-slate-300/70'
+    : 'inline-flex items-center justify-center rounded-xl border border-white/30 bg-gradient-to-r from-[#ff8a8a] via-[#8a8aff] to-[#6affc0] px-4 py-2 text-sm font-semibold text-slate-900 shadow-lg shadow-purple-500/30 transition hover:shadow-purple-500/50'
+  const sideCardClass = isLight
+    ? 'flex flex-col items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-white/90 p-6 text-center shadow-md shadow-slate-200/50'
+    : 'flex flex-col items-center justify-between gap-4 rounded-2xl border border-white/10 bg-slate-900/60 p-6 text-center shadow-lg shadow-indigo-500/20'
+  const sideHeadingClass = isLight ? 'text-sm font-semibold uppercase tracking-wide text-slate-600' : 'text-sm font-semibold uppercase tracking-wide text-slate-200'
+  const guidanceClass = isLight ? 'text-xs text-slate-500' : 'text-xs text-slate-400'
+
   return (
     <div className="grid gap-6 lg:grid-cols-[1fr_220px]">
-      <div className="space-y-4 rounded-2xl border border-white/10 bg-slate-900/70 p-6 shadow-lg shadow-indigo-500/20">
-        <h3 className="text-lg font-semibold text-white">Resumen de cuenta</h3>
+      <div className={infoCardClass}>
+        <h3 className={headingClass}>Resumen de cuenta</h3>
         <div className="space-y-2 text-sm">
-          <p className="text-slate-300">Dirección</p>
-          <p className="break-all rounded-xl border border-white/10 bg-slate-950/70 px-3 py-2 font-mono text-sm text-slate-100">
-            {wallet.address}
-          </p>
+          <p className={labelClass}>Dirección</p>
+          <p className={valueBoxClass}>{wallet.address}</p>
         </div>
         <div className="space-y-2 text-sm">
-          <p className="text-slate-300">Balance disponible</p>
-          <p className="rounded-xl border border-emerald-400/30 bg-emerald-400/10 px-3 py-2 text-lg font-semibold text-emerald-200">
+          <p className={labelClass}>Balance disponible</p>
+          <p className={balanceBoxClass}>
             {balance} {DISPLAY_DENOM}
           </p>
         </div>
         <button
           type="button"
           onClick={onCopy}
-          className="inline-flex items-center justify-center rounded-xl border border-white/30 bg-gradient-to-r from-[#ff8a8a] via-[#8a8aff] to-[#6affc0] px-4 py-2 text-sm font-semibold text-slate-900 shadow-lg shadow-purple-500/30 transition hover:shadow-purple-500/50"
+          className={copyButtonClass}
         >
           Copiar dirección
         </button>
       </div>
 
-      <div className="flex flex-col items-center justify-between gap-4 rounded-2xl border border-white/10 bg-slate-900/60 p-6 text-center shadow-lg shadow-indigo-500/20">
-        <h4 className="text-sm font-semibold uppercase tracking-wide text-slate-200">Recibir tokens</h4>
+      <div className={sideCardClass}>
+        <h4 className={sideHeadingClass}>Recibir tokens</h4>
         <QRCodeSVG value={wallet.address} includeMargin size={160} />
-        <p className="text-xs text-slate-400">{CONFIRMATION_GUIDANCE}</p>
+        <p className={guidanceClass}>{CONFIRMATION_GUIDANCE}</p>
       </div>
     </div>
   )

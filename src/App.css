@@ -1,10 +1,29 @@
+:root {
+  --app-body-bg: #020617;
+  --app-selection-bg: rgba(168, 85, 247, 0.45);
+  --app-selection-color: #f8fafc;
+}
+
+:root[data-theme='light'] {
+  --app-body-bg: #f8fafc;
+  --app-selection-bg: rgba(56, 189, 248, 0.35);
+  --app-selection-color: #0f172a;
+}
+
+:root[data-theme='dark'] {
+  --app-body-bg: #020617;
+  --app-selection-bg: rgba(168, 85, 247, 0.45);
+  --app-selection-color: #f8fafc;
+}
+
 body {
   margin: 0;
-  background-color: #020617;
+  background-color: var(--app-body-bg);
   color: inherit;
+  transition: background-color 0.3s ease;
 }
 
 ::selection {
-  background: rgba(168, 85, 247, 0.45);
-  color: #f8fafc;
+  background: var(--app-selection-bg);
+  color: var(--app-selection-color);
 }
