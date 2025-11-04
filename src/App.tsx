@@ -1,15 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { GasPrice, SigningStargateClient, StargateClient } from '@cosmjs/stargate'
+import { QRCodeSVG } from 'qrcode.react'
 
-import {
-  AccountSummary,
-  SendTokensForm,
-  StoredWalletUnlock,
-  WalletImportForm,
-  type WalletImportPayload,
-} from './components/wallet'
+import { SendTokensForm, StoredWalletUnlock, WalletImportForm, type WalletImportPayload } from './components/wallet'
 import ConnectView from './components/ConnectView'
-import { TabNavigation } from './components/TabNavigation'
 import {
   DEFAULT_CHAIN,
   createSignerFromMnemonic,
@@ -24,23 +18,12 @@ import {
   shortenAddress,
 } from './lib/wallet'
 import type { ActiveWallet, EncryptedWalletShape } from './lib/wallet'
-import { DEFAULT_GAS_PRICE, DISPLAY_DENOM } from './config'
-import BalancePanel from './components/BalancePanel'
+import { CONFIRMATION_GUIDANCE, DEFAULT_GAS_PRICE, DISPLAY_DENOM } from './config'
 import './App.css'
 
-const tabs = [
-  { id: 'home', label: 'Inicio', description: 'Resumen de la app y balances' },
-  { id: 'wallet', label: 'Wallet', description: 'Importar, desbloquear y ver tu cuenta' },
-  { id: 'send', label: 'Enviar', description: 'Transferir tokens y revisar movimientos' },
-  { id: 'settings', label: 'Ajustes', description: 'Conexión RPC y apariencia' },
-]
-
-type TabId = (typeof tabs)[number]['id']
 type ThemeMode = 'light' | 'dark'
 
 const THEME_STORAGE_KEY = 'plt-wallet-theme'
-const TIPS_STORAGE_KEY = 'plt-wallet-tips'
-
 const resolveInitialTheme = (): ThemeMode => {
   if (typeof window !== 'undefined') {
     const stored = window.localStorage.getItem(THEME_STORAGE_KEY)
@@ -51,15 +34,7 @@ const resolveInitialTheme = (): ThemeMode => {
   return 'light'
 }
 
-const resolveInitialTipsVisibility = (): boolean => {
-  if (typeof window !== 'undefined') {
-    return window.localStorage.getItem(TIPS_STORAGE_KEY) !== 'hidden'
-  }
-  return true
-}
-
 function App() {
-  const [activeTab, setActiveTab] = useState<TabId>('home')
   const [rpcUrl, setRpcUrl] = useState(DEFAULT_CHAIN.rpcUrl)
   const [expectedChainId, setExpectedChainId] = useState(DEFAULT_CHAIN.chainId)
   const [connectionError, setConnectionError] = useState<string | null>(null)
@@ -81,8 +56,10 @@ function App() {
   const [walletBalances, setWalletBalances] = useState<Record<string, string>>({})
   const [isRefreshingBalance, setIsRefreshingBalance] = useState(false)
   const [activatingWalletAddress, setActivatingWalletAddress] = useState<string | null>(null)
+  const [isWalletPanelOpen, setIsWalletPanelOpen] = useState(false)
+  const [showSendModal, setShowSendModal] = useState(false)
+  const [showReceiveModal, setShowReceiveModal] = useState(false)
   const [theme, setTheme] = useState<ThemeMode>(() => resolveInitialTheme())
-  const [showTips, setShowTips] = useState<boolean>(() => resolveInitialTipsVisibility())
 
   const gasPrice = useMemo(() => GasPrice.fromString(DEFAULT_GAS_PRICE), [])
 
@@ -105,12 +82,6 @@ function App() {
       window.localStorage.setItem(THEME_STORAGE_KEY, theme)
     }
   }, [theme])
-
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      window.localStorage.setItem(TIPS_STORAGE_KEY, showTips ? 'visible' : 'hidden')
-    }
-  }, [showTips])
 
   const toggleTheme = useCallback(() => {
     setTheme((current) => (current === 'light' ? 'dark' : 'light'))
@@ -214,7 +185,6 @@ function App() {
       setChainId(remoteChainId)
       setHeight(currentHeight)
       setStatusMessage(`Conectado a ${trimmedRpc} (${remoteChainId}).`)
-      setActiveTab('wallet')
     } catch (error) {
       const message = error instanceof Error ? error.message : 'No se pudo conectar con el RPC indicado.'
       setConnectionError(message)
@@ -238,8 +208,10 @@ function App() {
     setWalletBalances({})
     setWalletBeingUnlocked(null)
     setUnlockError(null)
+    setIsWalletPanelOpen(false)
+    setShowSendModal(false)
+    setShowReceiveModal(false)
     setStatusMessage('Desconectado del nodo RPC.')
-    setActiveTab('settings')
   }, [disconnectSigningClient, queryClient])
 
   const handleImportWallet = useCallback(
@@ -283,7 +255,7 @@ function App() {
         }
 
         setStatusMessage(status)
-        setActiveTab('wallet')
+        setIsWalletPanelOpen(false)
       } catch (error) {
         console.error('Error al importar la wallet', error)
         const message = error instanceof Error ? error.message : 'Ocurrió un error inesperado al importar la wallet.'
@@ -325,7 +297,7 @@ function App() {
         setErrorMessage(null)
         setUnlockError(null)
         setWalletBeingUnlocked(null)
-        setActiveTab('wallet')
+        setIsWalletPanelOpen(false)
       } catch (error) {
         console.error('Error al desbloquear la wallet', error)
         const message =
@@ -374,6 +346,7 @@ function App() {
       try {
         await activateWallet(wallet)
         setStatusMessage(`Wallet ${shortenAddress(wallet.address)} activada.`)
+        setIsWalletPanelOpen(false)
       } catch (error) {
         console.error('No se pudo activar la wallet seleccionada', error)
         const message = error instanceof Error ? error.message : 'No se pudo activar la wallet seleccionada.'
@@ -391,87 +364,97 @@ function App() {
       .catch(() => setStatusMessage('No se pudo copiar la dirección. Copiala manualmente.'))
   }, [activeWallet])
 
-  const handleHideTips = useCallback(() => {
-    setShowTips(false)
-  }, [])
-
-  const handleShowTips = useCallback(() => {
-    setShowTips(true)
-  }, [])
-
-  const tabItems = useMemo(
-    () =>
-      tabs.map((tab) => ({
-        ...tab,
-        description:
-          tab.id === 'wallet'
-            ? activeWallet
-              ? `Activa: ${shortenAddress(activeWallet.address)}`
-              : 'Sin wallet activa'
-            : tab.id === 'send'
-              ? activeWallet
-                ? 'Listo para enviar'
-                : 'Requiere wallet'
-            : tab.id === 'settings'
-                ? chainId
-                  ? `Chain: ${chainId}`
-                  : isConnected
-                    ? 'RPC conectado'
-                    : 'Sin conexión'
-                : tab.description,
-        disabled: tab.id === 'wallet' ? !isConnected : tab.id === 'send' ? !activeWallet : false,
-      })),
-    [activeWallet, chainId, isConnected],
-  )
-
   const isLight = theme === 'light'
   const pageClass = isLight
-    ? 'min-h-screen bg-gradient-to-b from-slate-100 via-slate-100 to-slate-200 text-slate-900 flex flex-col'
-    : 'min-h-screen bg-gradient-to-b from-slate-950 via-slate-950 to-slate-900 text-slate-100 flex flex-col'
-  const appShellClass = 'mx-auto flex w-full max-w-md flex-1 flex-col md:max-w-2xl lg:max-w-3xl xl:max-w-4xl'
-  const mainClass = 'flex-1 px-5 pb-28 pt-6 md:px-8 lg:px-12'
-  const headerTitleClass = isLight ? 'text-2xl font-semibold text-slate-900' : 'text-2xl font-semibold text-white'
-  const headerSubtitleClass = isLight ? 'text-sm text-slate-500' : 'text-sm text-slate-400'
-  const sectionTitleClass = isLight ? 'text-lg font-semibold text-slate-900' : 'text-lg font-semibold text-white'
-  const cardClass = isLight
-    ? 'rounded-3xl border border-slate-200 bg-white/95 p-6 shadow-lg shadow-slate-200/70 backdrop-blur'
-    : 'rounded-3xl border border-white/10 bg-slate-900/80 p-6 shadow-xl shadow-indigo-500/25 backdrop-blur'
-  const secondaryCardClass = isLight
-    ? 'rounded-3xl border border-slate-200 bg-white/90 p-6 shadow-md shadow-slate-200/60'
-    : 'rounded-3xl border border-white/10 bg-slate-900/70 p-6 shadow-lg shadow-purple-500/30'
-  const mutedTextClass = isLight ? 'text-sm text-slate-500' : 'text-sm text-slate-400'
-  const infoCardClass = isLight
-    ? 'rounded-2xl border border-slate-200 bg-white/80 p-4 text-sm text-slate-600 shadow-inner shadow-slate-200/40'
-    : 'rounded-2xl border border-white/10 bg-slate-900/70 p-4 text-sm text-slate-300'
-  const statusClass = isLight
-    ? 'rounded-2xl border border-emerald-500/20 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 shadow-sm shadow-emerald-200/60'
-    : 'rounded-2xl border border-emerald-400/30 bg-emerald-400/10 px-4 py-3 text-sm text-emerald-100 shadow-lg shadow-emerald-500/20'
-  const errorClass = isLight
-    ? 'rounded-2xl border border-rose-500/20 bg-rose-50 px-4 py-3 text-sm text-rose-700 shadow-sm shadow-rose-200/60'
-    : 'rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-100 shadow-lg shadow-rose-500/20'
-  const inactiveSendClass = isLight
-    ? 'rounded-3xl border border-slate-200 bg-white/90 p-6 text-center text-sm text-slate-600 shadow-md shadow-slate-200/50'
-    : 'rounded-3xl border border-white/10 bg-slate-900/70 p-6 text-center text-sm text-slate-300 shadow-lg shadow-purple-500/20'
-  const settingsCardHeaderClass = isLight
-    ? 'flex items-center justify-between text-slate-900'
-    : 'flex items-center justify-between text-white'
-  const toggleButtonClass = isLight
+    ? 'min-h-screen bg-gradient-to-br from-slate-100 via-white to-slate-200 text-slate-900'
+    : 'min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 text-slate-100'
+  const appShellClass = 'mx-auto flex w-full max-w-5xl flex-1 flex-col px-5 pb-24 pt-6 sm:px-8 lg:px-12'
+  const headerClass = 'flex flex-col gap-6 pb-6 sm:flex-row sm:items-center sm:justify-between'
+  const headerTitleClass = isLight ? 'text-3xl font-semibold tracking-tight text-slate-900' : 'text-3xl font-semibold tracking-tight text-white'
+  const headerSubtitleClass = isLight ? 'mt-1 max-w-xl text-sm text-slate-500' : 'mt-1 max-w-xl text-sm text-slate-400'
+  const headerActionsClass = 'flex flex-wrap items-center gap-3 sm:justify-end'
+  const connectionBadgeClass = isConnected
+    ? isLight
+      ? 'inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-600 shadow-sm'
+      : 'inline-flex items-center gap-2 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-200 shadow-[0_0_18px_rgba(45,212,191,0.25)]'
+    : isLight
+      ? 'inline-flex items-center gap-2 rounded-full border border-rose-200 bg-rose-100 px-3 py-1 text-xs font-semibold text-rose-600 shadow-sm'
+      : 'inline-flex items-center gap-2 rounded-full border border-rose-500/40 bg-rose-500/10 px-3 py-1 text-xs font-semibold text-rose-200 shadow-[0_0_18px_rgba(248,113,113,0.2)]'
+  const walletButtonClass = isLight
+    ? 'inline-flex items-center gap-2 rounded-full border border-slate-300 bg-white/90 px-4 py-2 text-sm font-semibold text-slate-800 shadow-sm transition hover:border-slate-400 hover:shadow disabled:cursor-not-allowed disabled:opacity-60'
+    : 'inline-flex items-center gap-2 rounded-full border border-white/15 bg-slate-900/80 px-4 py-2 text-sm font-semibold text-slate-100 shadow-lg transition hover:border-white/40 hover:bg-slate-900 disabled:cursor-not-allowed disabled:opacity-60'
+  const themeButtonClass = isLight
     ? 'inline-flex items-center gap-2 rounded-full border border-slate-300 bg-white/90 px-4 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-100'
     : 'inline-flex items-center gap-2 rounded-full border border-white/20 bg-slate-900/80 px-4 py-2 text-sm font-medium text-slate-100 shadow-lg transition hover:border-white/40 hover:bg-slate-900'
-  const homeWrapperClass = showTips ? 'space-y-5 md:grid md:grid-cols-2 md:gap-6 md:space-y-0' : 'space-y-5'
-  const tipsHeaderClass = 'flex items-start justify-between gap-3'
-  const tipsDismissButtonClass = isLight
-    ? 'inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white/80 px-3 py-1 text-xs font-medium text-slate-500 transition hover:border-slate-400 hover:text-slate-700'
-    : 'inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-slate-900/80 px-3 py-1 text-xs font-medium text-slate-300 transition hover:border-white/40 hover:text-white'
-  const tipsRestoreButtonClass = isLight
-    ? 'inline-flex items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-slate-300 hover:bg-slate-100'
-    : 'inline-flex items-center justify-center rounded-2xl border border-white/10 bg-slate-900/80 px-4 py-3 text-sm font-semibold text-slate-100 shadow-lg transition hover:border-white/30 hover:bg-slate-900'
-  const settingsWrapperClass = 'space-y-5 md:grid md:grid-cols-2 md:gap-6 md:space-y-0'
-  const walletLayoutClass = 'space-y-5 md:grid md:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)] md:gap-6 md:space-y-0'
-  const walletListClass = 'mt-4 space-y-3'
+  const mainClass = 'flex-1 space-y-6'
+  const primaryCardClass = isLight
+    ? 'rounded-3xl border border-slate-200 bg-white/95 p-6 shadow-xl shadow-slate-200/60 backdrop-blur-lg'
+    : 'rounded-3xl border border-white/10 bg-slate-900/80 p-6 shadow-2xl shadow-indigo-500/30 backdrop-blur-lg'
+  const secondaryCardClass = isLight
+    ? 'rounded-3xl border border-slate-200 bg-white/85 p-6 shadow-lg shadow-slate-200/50 backdrop-blur'
+    : 'rounded-3xl border border-white/10 bg-slate-900/70 p-6 shadow-xl shadow-indigo-500/20 backdrop-blur'
+  const sectionTitleClass = isLight ? 'text-lg font-semibold text-slate-900' : 'text-lg font-semibold text-white'
+  const mutedTextClass = isLight ? 'text-sm text-slate-500' : 'text-sm text-slate-400'
+  const balanceLabelClass = isLight ? 'text-xs font-semibold uppercase tracking-wide text-slate-500' : 'text-xs font-semibold uppercase tracking-wide text-slate-400'
+  const balanceValueClass = isLight ? 'text-4xl font-semibold tracking-tight text-slate-900' : 'text-4xl font-semibold tracking-tight text-white'
+  const addressBoxClass = isLight
+    ? 'break-all rounded-xl border border-slate-200 bg-white px-3 py-2 font-mono text-xs text-slate-700'
+    : 'break-all rounded-xl border border-white/10 bg-slate-900 px-3 py-2 font-mono text-xs text-slate-200'
+  const copyButtonClass = isLight
+    ? 'inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-slate-400 hover:shadow'
+    : 'inline-flex items-center gap-2 rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-xs font-semibold text-slate-100 transition hover:border-white/30 hover:bg-slate-900/80'
+  const walletTypeBadgeClass = isLight
+    ? 'inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600'
+    : 'inline-flex items-center gap-2 rounded-full bg-slate-800/80 px-3 py-1 text-xs font-semibold text-slate-200'
+  const quickActionsWrapperClass = 'mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4'
+  const quickActionPrimaryClass = isLight
+    ? 'rounded-2xl bg-gradient-to-r from-sky-400 via-indigo-400 to-emerald-400 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-sky-300/50 transition hover:shadow-sky-400/60 disabled:cursor-not-allowed disabled:opacity-60'
+    : 'rounded-2xl bg-gradient-to-r from-sky-500 via-indigo-500 to-emerald-400 px-4 py-3 text-sm font-semibold text-slate-900 shadow-lg shadow-indigo-500/40 transition hover:shadow-indigo-500/60 disabled:cursor-not-allowed disabled:opacity-60'
+  const quickActionSecondaryClass = isLight
+    ? 'rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-slate-400 hover:shadow disabled:cursor-not-allowed disabled:opacity-60'
+    : 'rounded-2xl border border-white/10 bg-slate-900 px-4 py-3 text-sm font-semibold text-slate-100 shadow-lg transition hover:border-white/30 hover:bg-slate-900/80 disabled:cursor-not-allowed disabled:opacity-60'
+  const quickActionGhostClass = isLight
+    ? 'rounded-2xl border border-transparent bg-slate-100/80 px-4 py-3 text-sm font-semibold text-slate-600 transition hover:border-slate-300 hover:bg-white disabled:cursor-not-allowed disabled:opacity-60'
+    : 'rounded-2xl border border-transparent bg-slate-900/70 px-4 py-3 text-sm font-semibold text-slate-300 transition hover:border-white/20 hover:bg-slate-900 disabled:cursor-not-allowed disabled:opacity-60'
+  const toastContainerClass = 'pointer-events-none fixed right-4 top-4 z-50 flex flex-col gap-3'
+  const successToastClass = isLight
+    ? 'pointer-events-auto flex items-start gap-3 rounded-2xl border border-emerald-200 bg-white/95 px-4 py-3 text-sm text-emerald-700 shadow-lg shadow-emerald-200/50'
+    : 'pointer-events-auto flex items-start gap-3 rounded-2xl border border-emerald-500/40 bg-slate-900 px-4 py-3 text-sm text-emerald-200 shadow-lg shadow-emerald-500/30'
+  const errorToastClass = isLight
+    ? 'pointer-events-auto flex items-start gap-3 rounded-2xl border border-rose-200 bg-white/95 px-4 py-3 text-sm text-rose-700 shadow-lg shadow-rose-200/50'
+    : 'pointer-events-auto flex items-start gap-3 rounded-2xl border border-rose-500/40 bg-slate-900 px-4 py-3 text-sm text-rose-200 shadow-lg shadow-rose-500/30'
+  const toastCloseButtonClass = isLight
+    ? 'inline-flex h-6 w-6 items-center justify-center rounded-full border border-slate-200 bg-white/70 text-xs text-slate-500 transition hover:border-slate-300 hover:text-slate-700'
+    : 'inline-flex h-6 w-6 items-center justify-center rounded-full border border-white/15 bg-slate-900/80 text-xs text-slate-300 transition hover:border-white/30 hover:text-white'
+  const walletLayoutInfoClass = 'space-y-6'
+  const panelOverlayClass = 'fixed inset-0 z-40 flex items-end justify-center bg-slate-950/40 px-4 pb-10 pt-12 sm:items-center'
+  const panelClass = isLight
+    ? 'w-full max-w-3xl rounded-3xl border border-slate-200 bg-white/95 p-6 shadow-2xl shadow-slate-300/60 backdrop-blur-xl'
+    : 'w-full max-w-3xl rounded-3xl border border-white/10 bg-slate-950/90 p-6 shadow-2xl shadow-indigo-500/40 backdrop-blur-xl'
+  const panelHeaderClass = 'flex items-start justify-between gap-4'
+  const panelTitleClass = isLight ? 'text-xl font-semibold text-slate-900' : 'text-xl font-semibold text-white'
+  const panelSubtitleClass = isLight ? 'text-sm text-slate-500' : 'text-sm text-slate-300'
+  const panelCloseButtonClass = isLight
+    ? 'inline-flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-sm text-slate-500 transition hover:border-slate-400 hover:text-slate-700'
+    : 'inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-slate-900 text-sm text-slate-200 transition hover:border-white/30 hover:text-white'
+  const panelSectionTitleClass = isLight ? 'text-xs font-semibold uppercase tracking-wide text-slate-500' : 'text-xs font-semibold uppercase tracking-wide text-slate-300'
+  const panelSectionHelperClass = isLight ? 'text-xs text-slate-400' : 'text-xs text-slate-500'
+  const panelListClass = 'space-y-3'
+  const panelDividerClass = isLight ? 'my-6 border-t border-slate-200' : 'my-6 border-t border-white/10'
+  const modalOverlayClass = 'fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 px-4 py-6'
+  const modalCardClass = isLight
+    ? 'w-full max-w-lg rounded-3xl border border-slate-200 bg-white/95 p-6 shadow-2xl shadow-slate-300/70 backdrop-blur'
+    : 'w-full max-w-lg rounded-3xl border border-white/10 bg-slate-950/90 p-6 shadow-2xl shadow-indigo-500/40 backdrop-blur'
+  const modalHeaderClass = 'flex items-center justify-between gap-4'
+  const modalTitleClass = isLight ? 'text-lg font-semibold text-slate-900' : 'text-lg font-semibold text-white'
+  const modalCloseButtonClass = isLight
+    ? 'inline-flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-sm text-slate-500 transition hover:border-slate-400 hover:text-slate-700'
+    : 'inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-slate-900 text-sm text-slate-200 transition hover:border-white/30 hover:text-white'
+  const receiveAddressBoxClass = addressBoxClass
+  const receiveHintClass = isLight ? 'text-xs text-slate-500' : 'text-xs text-slate-400'
   const walletItemBaseClass = isLight
-    ? 'flex items-center justify-between rounded-2xl border border-slate-200 bg-white/85 px-4 py-3 shadow-sm transition'
-    : 'flex items-center justify-between rounded-2xl border border-white/10 bg-slate-900/70 px-4 py-3 shadow-lg transition'
+    ? 'flex items-center justify-between rounded-2xl border border-slate-200 bg-white/85 px-4 py-3 shadow-sm transition hover:border-slate-300 hover:shadow'
+    : 'flex items-center justify-between rounded-2xl border border-white/10 bg-slate-900/70 px-4 py-3 shadow-lg transition hover:border-white/20 hover:bg-slate-900/70'
   const walletItemLabelClass = isLight ? 'text-sm font-semibold text-slate-800' : 'text-sm font-semibold text-slate-100'
   const walletItemSubClass = isLight ? 'text-xs text-slate-500' : 'text-xs text-slate-400'
   const walletActionButtonClass = isLight
@@ -481,177 +464,292 @@ function App() {
     ? 'rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-700'
     : 'rounded-full bg-emerald-500/20 px-2 py-0.5 text-xs font-semibold text-emerald-200'
   const storedWalletContainerClass = isLight
-    ? 'space-y-3 rounded-2xl border border-slate-200 bg-white/80 p-4 shadow-sm shadow-slate-200/60'
-    : 'space-y-3 rounded-2xl border border-white/10 bg-slate-900/70 p-4 shadow-lg shadow-indigo-500/20'
+    ? 'space-y-3 rounded-2xl border border-slate-200 bg-white/80 p-4 shadow-sm'
+    : 'space-y-3 rounded-2xl border border-white/10 bg-slate-900/70 p-4 shadow-lg'
   const walletTagClass = isLight ? 'text-[11px] uppercase tracking-wide text-slate-500' : 'text-[11px] uppercase tracking-wide text-slate-400'
-  const infoPillClass = isLight
-    ? 'inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-100/70 px-3 py-1 text-xs font-medium text-slate-600'
-    : 'inline-flex items-center gap-2 rounded-full border border-white/5 bg-slate-900/70 px-3 py-1 text-xs font-medium text-slate-300'
+  const emptyStateClass = isLight ? 'rounded-3xl border border-dashed border-slate-300 bg-white/60 p-6 text-center text-sm text-slate-500' : 'rounded-3xl border border-dashed border-white/20 bg-slate-900/50 p-6 text-center text-sm text-slate-400'
+  const tipsListClass = isLight ? 'list-disc space-y-2 pl-5 text-sm text-slate-500' : 'list-disc space-y-2 pl-5 text-sm text-slate-300'
+  const statusDotClass = isConnected
+    ? 'h-2.5 w-2.5 rounded-full bg-emerald-500 shadow-[0_0_0_4px_rgba(16,185,129,0.18)]'
+    : 'h-2.5 w-2.5 rounded-full bg-rose-500 shadow-[0_0_0_4px_rgba(248,113,113,0.18)]'
+  const formattedHeight = height ? height.toLocaleString('es-AR') : '—'
+  const hasSessionWallets = wallets.length > 0
+  const hasStoredWallets = storedWallets.length > 0
+  const walletButtonDisabled = !isConnected && !hasSessionWallets && !hasStoredWallets
+  const walletButtonLabel = activeWallet
+    ? shortenAddress(activeWallet.address)
+    : hasSessionWallets || hasStoredWallets
+      ? 'Cambiar o importar'
+      : 'Importar wallet'
+  const refreshLabel = isRefreshingBalance ? 'Actualizando…' : 'Actualizar balance'
+  const canSend = Boolean(activeWallet && signingClient && !isWalletActivationPending)
+  const canReceive = Boolean(activeWallet)
 
   return (
     <div className={pageClass}>
       <div className={appShellClass}>
-        <main className={mainClass}>
-          <header className="mb-6">
+        <header className={headerClass}>
+          <div>
             <h1 className={headerTitleClass}>PLT Wallet</h1>
-            <p className={headerSubtitleClass}>Gestioná tu red, tu wallet y tus envíos desde una experiencia tipo app móvil.</p>
-          </header>
+            <p className={headerSubtitleClass}>Gestioná tus cuentas con una interfaz ligera inspirada en las wallets más populares.</p>
+          </div>
+          <div className={headerActionsClass}>
+            <span className={connectionBadgeClass}>
+              <span className={statusDotClass} />
+              {isConnected ? `Conectado${chainId ? ` · ${chainId}` : ''}` : 'Sin conexión'}
+            </span>
+            <button
+              type='button'
+              onClick={() => setIsWalletPanelOpen(true)}
+              className={walletButtonClass}
+              disabled={walletButtonDisabled}
+            >
+              <span aria-hidden='true'>👛</span>
+              <span>{walletButtonLabel}</span>
+            </button>
+            <button type='button' onClick={toggleTheme} className={themeButtonClass}>
+              {isLight ? 'Modo oscuro' : 'Modo claro'}
+            </button>
+          </div>
+        </header>
 
-          {statusMessage ? <div className={`mb-4 ${statusClass}`}>{statusMessage}</div> : null}
-          {errorMessage ? <div className={`mb-4 ${errorClass}`}>{errorMessage}</div> : null}
-
-          {activeTab === 'home' ? (
-            <div className="space-y-6">
-              <div className={homeWrapperClass}>
-                {showTips ? (
-                  <section className={`${cardClass} space-y-4`}>
-                    <div className={tipsHeaderClass}>
-                      <h2 className={sectionTitleClass}>Recomendaciones rápidas</h2>
-                      <button type="button" onClick={handleHideTips} className={tipsDismissButtonClass}>
-                        Ocultar
+        <main className={mainClass}>
+          {!isConnected ? (
+            <section className={primaryCardClass}>
+              <h2 className={sectionTitleClass}>Conectate a tu red</h2>
+              <p className={mutedTextClass}>Ingresá los datos del nodo RPC y verificá el chain-id antes de comenzar.</p>
+              <div className='mt-5'>
+                <ConnectView
+                  theme={theme}
+                  rpcUrl={rpcUrl}
+                  onRpcUrlChange={setRpcUrl}
+                  expectedChainId={expectedChainId}
+                  onExpectedChainIdChange={setExpectedChainId}
+                  chainId={chainId}
+                  height={height}
+                  isConnected={isConnected}
+                  error={connectionError}
+                  onConnect={handleConnect}
+                  onDisconnect={handleDisconnect}
+                />
+              </div>
+            </section>
+          ) : (
+            <div className={walletLayoutInfoClass}>
+              <section className={primaryCardClass}>
+                {activeWallet ? (
+                  <div className='space-y-6'>
+                    <div className='flex flex-wrap items-start justify-between gap-4'>
+                      <div>
+                        <p className={balanceLabelClass}>Balance disponible</p>
+                        <p className={balanceValueClass}>
+                          {displayBalance} {DISPLAY_DENOM}
+                        </p>
+                      </div>
+                      <span className={walletTypeBadgeClass}>{activeWallet.type === 'mnemonic' ? 'Mnemonic' : 'Clave privada'}</span>
+                    </div>
+                    <div className='space-y-2'>
+                      <p className={mutedTextClass}>Dirección</p>
+                      <div className='flex flex-wrap items-center gap-3'>
+                        <span className={addressBoxClass}>{activeWallet.address}</span>
+                        <button type='button' onClick={handleCopyAddress} className={copyButtonClass}>
+                          Copiar
+                        </button>
+                      </div>
+                    </div>
+                    <div className={quickActionsWrapperClass}>
+                      <button
+                        type='button'
+                        onClick={() => setShowSendModal(true)}
+                        className={quickActionPrimaryClass}
+                        disabled={!canSend}
+                      >
+                        Enviar tokens
+                      </button>
+                      <button
+                        type='button'
+                        onClick={() => setShowReceiveModal(true)}
+                        className={quickActionSecondaryClass}
+                        disabled={!canReceive}
+                      >
+                        Recibir tokens
+                      </button>
+                      <button
+                        type='button'
+                        onClick={handleManualRefreshBalance}
+                        className={quickActionGhostClass}
+                        disabled={isRefreshingBalance}
+                      >
+                        {refreshLabel}
+                      </button>
+                      <button
+                        type='button'
+                        onClick={() => setIsWalletPanelOpen(true)}
+                        className={quickActionGhostClass}
+                      >
+                        Gestionar wallets
                       </button>
                     </div>
-                    <ul className="space-y-3">
-                      <li className={infoCardClass}>Nunca compartas tu mnemonic o clave privada. Esta app no la registra en ningún servidor.</li>
-                      <li className={infoCardClass}>
-                        Si decidís guardar la wallet en este navegador, se cifrará con la contraseña que indiques. Sin contraseña, no se
-                        almacena nada.
-                      </li>
-                      <li className={infoCardClass}>Hacé un backup físico (papel) de tu mnemonic y guardalo en un lugar seguro.</li>
-                    </ul>
-                  </section>
-                ) : null}
-
-                <div>
-                  <BalancePanel client={queryClient} theme={theme} />
-                </div>
-              </div>
-
-              {!showTips ? (
-                <button type="button" onClick={handleShowTips} className={tipsRestoreButtonClass}>
-                  Mostrar recomendaciones
-                </button>
-              ) : null}
-            </div>
-          ) : null}
-
-          {activeTab === 'wallet' ? (
-            <div className={walletLayoutClass}>
-              <div className="space-y-5">
-                {activeWallet ? (
-                  <section className="space-y-4">
-                    <AccountSummary
-                      theme={theme}
-                      wallet={activeWallet}
-                      balance={displayBalance}
-                      onCopy={handleCopyAddress}
-                      onRefreshBalance={handleManualRefreshBalance}
-                      refreshingBalance={isRefreshingBalance}
-                    />
-                    <div className="flex flex-wrap gap-2" aria-live="polite">
-                      <span className={infoPillClass} title="Se usa para enviar y firmar transacciones.">
-                        La wallet activa firma y envía tus operaciones.
-                      </span>
-                      <span className={infoPillClass} title="Podés alternar sin volver a importar.">
-                        Cambiá de wallet desde la sección de gestión.
-                      </span>
-                    </div>
-                  </section>
+                  </div>
                 ) : (
-                  <section className={secondaryCardClass}>
-                    <h2 className={sectionTitleClass}>Sin wallet activa</h2>
+                  <div className='space-y-4'>
+                    <h2 className={sectionTitleClass}>Importá tu primera wallet</h2>
                     <p className={mutedTextClass}>
-                      Importá una wallet o desbloqueá una guardada para ver el resumen de la cuenta y poder firmar operaciones.
+                      Abrí el panel para importar una mnemonic o desbloquear una wallet previamente guardada.
                     </p>
-                  </section>
+                    <div className='flex flex-wrap gap-3'>
+                      <button
+                        type='button'
+                        onClick={() => setIsWalletPanelOpen(true)}
+                        className={quickActionPrimaryClass}
+                      >
+                        Gestionar wallets
+                      </button>
+                    </div>
+                  </div>
                 )}
+              </section>
 
-                <section className={secondaryCardClass}>
-                  <h2 className={sectionTitleClass}>Importar wallet</h2>
-                  <p className={mutedTextClass}>
-                    Elegí el tipo de clave, ingresá tus credenciales y definí si querés guardarla cifrada en este navegador.
-                  </p>
-                  <div className="mt-5">
-                    <WalletImportForm
-                      theme={theme}
-                      onSubmit={handleImportWallet}
-                      disabled={!isConnected || isWalletActivationPending}
-                      loading={isImporting}
-                    />
+              <section className={secondaryCardClass}>
+                <div className='flex flex-wrap items-start justify-between gap-4'>
+                  <div>
+                    <h2 className={sectionTitleClass}>Conexión a la red</h2>
+                    <p className={mutedTextClass}>Cambiate de RPC, revisá el chain-id y desconectate cuando quieras.</p>
                   </div>
-                </section>
+                  <div className={mutedTextClass}>Altura actual: {formattedHeight}</div>
+                </div>
+                <div className='mt-5'>
+                  <ConnectView
+                    theme={theme}
+                    rpcUrl={rpcUrl}
+                    onRpcUrlChange={setRpcUrl}
+                    expectedChainId={expectedChainId}
+                    onExpectedChainIdChange={setExpectedChainId}
+                    chainId={chainId}
+                    height={height}
+                    isConnected={isConnected}
+                    error={connectionError}
+                    onConnect={handleConnect}
+                    onDisconnect={handleDisconnect}
+                  />
+                </div>
+              </section>
+
+              <section className={secondaryCardClass}>
+                <h2 className={sectionTitleClass}>Sugerencias de seguridad</h2>
+                <ul className={tipsListClass}>
+                  <li>Nunca compartas tu mnemonic o clave privada.</li>
+                  <li>Las wallets guardadas se cifran con la contraseña que definas.</li>
+                  <li>Mantené un backup físico de tus palabras.</li>
+                </ul>
+              </section>
+
+              <section className={secondaryCardClass}>
+                <h2 className={sectionTitleClass}>Actividad</h2>
+                <div className={emptyStateClass}>Pronto vas a poder ver tus transacciones recientes desde aquí.</div>
+              </section>
+            </div>
+          )}
+        </main>
+      </div>
+
+      <div className={toastContainerClass} aria-live='polite' aria-atomic='true'>
+        {statusMessage ? (
+          <div className={successToastClass}>
+            <span>{statusMessage}</span>
+            <button type='button' onClick={() => setStatusMessage(null)} className={toastCloseButtonClass} aria-label='Cerrar notificación'>
+              ×
+            </button>
+          </div>
+        ) : null}
+        {errorMessage ? (
+          <div className={errorToastClass}>
+            <span>{errorMessage}</span>
+            <button type='button' onClick={() => setErrorMessage(null)} className={toastCloseButtonClass} aria-label='Cerrar notificación'>
+              ×
+            </button>
+          </div>
+        ) : null}
+      </div>
+
+      {isWalletPanelOpen ? (
+        <div className={panelOverlayClass} role='dialog' aria-modal='true' aria-label='Gestión de wallets'>
+          <div className={panelClass}>
+            <div className={panelHeaderClass}>
+              <div>
+                <h2 className={panelTitleClass}>Gestionar wallets</h2>
+                <p className={panelSubtitleClass}>Alterná, importá y desbloqueá wallets cifradas en este dispositivo.</p>
               </div>
+              <button type='button' onClick={() => setIsWalletPanelOpen(false)} className={panelCloseButtonClass} aria-label='Cerrar gestión de wallets'>
+                ×
+              </button>
+            </div>
+            <div className='mt-6 max-h-[70vh] space-y-6 overflow-y-auto pr-1'>
+              <section className='space-y-3'>
+                <div>
+                  <p className={panelSectionTitleClass}>Wallets activas en la sesión</p>
+                  <p className={panelSectionHelperClass}>Podés alternar sin reingresar la clave.</p>
+                </div>
+                {hasSessionWallets ? (
+                  <ul className={panelListClass}>
+                    {wallets.map((walletItem) => {
+                      const isActiveWallet = activeWallet?.address === walletItem.address
+                      const isActivating = activatingWalletAddress === walletItem.address && isWalletActivationPending
+                      const knownBalance = walletBalances[walletItem.address]
+                      const balanceLabel =
+                        knownBalance !== undefined ? `${formatAmount(knownBalance)} ${DISPLAY_DENOM}` : 'Balance pendiente'
+                      const highlightClass = isActiveWallet
+                        ? isLight
+                          ? 'border-emerald-400/60 bg-emerald-50/80 ring-2 ring-emerald-300/70 shadow-lg'
+                          : 'border-emerald-400/40 bg-emerald-500/10 ring-2 ring-emerald-400/50 shadow-lg'
+                        : isActivating
+                          ? isLight
+                            ? 'border-sky-300 bg-sky-100/70 ring-2 ring-sky-300/60 animate-pulse'
+                            : 'border-sky-500/60 bg-sky-500/10 ring-2 ring-sky-500/60 animate-pulse'
+                          : ''
+                      const itemClass = [walletItemBaseClass, highlightClass].filter(Boolean).join(' ')
+                      return (
+                        <li key={walletItem.address} className={itemClass}>
+                          <div className='space-y-1'>
+                            <p className={walletItemLabelClass}>{shortenAddress(walletItem.address)}</p>
+                            <p className={walletItemSubClass}>
+                              <span className={walletTagClass}>{walletItem.type === 'mnemonic' ? 'Mnemonic' : 'Clave privada'}</span>
+                              <span> · {balanceLabel}</span>
+                            </p>
+                          </div>
+                          <div className='flex items-center gap-2'>
+                            {isActiveWallet ? (
+                              <span className={walletActiveBadgeClass}>Activa</span>
+                            ) : (
+                              <button
+                                type='button'
+                                onClick={() => handleSelectWallet(walletItem.address)}
+                                className={walletActionButtonClass}
+                                disabled={isWalletActivationPending || !isConnected}
+                                title={isConnected ? 'Cambiar wallet activa' : 'Necesitás estar conectado para alternar'}
+                              >
+                                {isActivating ? 'Activando…' : 'Usar'}
+                              </button>
+                            )}
+                          </div>
+                        </li>
+                      )
+                    })}
+                  </ul>
+                ) : (
+                  <div className={emptyStateClass}>Aún no agregaste wallets esta sesión.</div>
+                )}
+              </section>
 
-              <div className="space-y-5">
-                <section className={secondaryCardClass}>
-                  <h2 className={sectionTitleClass}>Tus wallets</h2>
-                  <p className={mutedTextClass}>
-                    Administrá todas las wallets activas en esta sesión. La seleccionada se usa automáticamente para enviar tokens.
-                  </p>
-                  {wallets.length ? (
-                    <ul className={walletListClass}>
-                      {wallets.map((walletItem) => {
-                        const isActiveWallet = activeWallet?.address === walletItem.address
-                        const isActivating = activatingWalletAddress === walletItem.address && isWalletActivationPending
-                        const knownBalance = walletBalances[walletItem.address]
-                        const balanceLabel =
-                          knownBalance !== undefined ? `${formatAmount(knownBalance)} ${DISPLAY_DENOM}` : 'Balance pendiente'
-                        const walletItemClass = [
-                          walletItemBaseClass,
-                          isActiveWallet
-                            ? isLight
-                              ? 'border-emerald-400/60 bg-emerald-50/80 ring-2 ring-emerald-300/70 shadow-lg'
-                              : 'border-emerald-400/40 bg-emerald-500/10 ring-2 ring-emerald-400/50 shadow-lg'
-                            : isActivating
-                              ? isLight
-                                ? 'border-sky-300 bg-sky-100/70 ring-2 ring-sky-300/60 animate-pulse'
-                                : 'border-sky-500/60 bg-sky-500/10 ring-2 ring-sky-500/60 animate-pulse'
-                              : ''
-                        ]
-                          .filter(Boolean)
-                          .join(' ')
-                        return (
-                          <li key={walletItem.address} className={walletItemClass}>
-                            <div className="space-y-1">
-                              <p className={walletItemLabelClass}>{shortenAddress(walletItem.address)}</p>
-                              <p className={walletItemSubClass}>
-                                <span className={walletTagClass}>{walletItem.type === 'mnemonic' ? 'Mnemonic' : 'Clave privada'}</span>
-                                <span> · {balanceLabel}</span>
-                              </p>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              {isActiveWallet ? (
-                                <span className={walletActiveBadgeClass}>Activa</span>
-                              ) : (
-                                <button
-                                  type="button"
-                                  onClick={() => handleSelectWallet(walletItem.address)}
-                                  className={walletActionButtonClass}
-                                  disabled={isWalletActivationPending || !isConnected}
-                                  title={isConnected ? 'Cambiar wallet activa' : 'Necesitás estar conectado para alternar'}
-                                >
-                                  {isActivating ? 'Activando…' : 'Usar'}
-                                </button>
-                              )}
-                            </div>
-                          </li>
-                        )
-                      })}
-                    </ul>
-                  ) : (
-                    <p className={`${mutedTextClass} mt-4`}>Cuando importes o desbloquees wallets, aparecerán acá.</p>
-                  )}
-                  <div className="mt-4 flex flex-wrap gap-2">
-                    <span className={infoPillClass}>Podés refrescar el balance desde el resumen de la wallet activa.</span>
-                    <span className={infoPillClass}>Las wallets agregadas se mantienen mientras dure esta sesión.</span>
-                  </div>
-                </section>
-
-                {storedWallets.length ? (
-                  <section className={secondaryCardClass}>
-                    <h2 className={sectionTitleClass}>Wallets guardadas en este navegador</h2>
-                    <p className={mutedTextClass}>Desbloquealas con tu contraseña para activarlas cuando las necesites.</p>
-                    <div className="mt-4 space-y-4">
+              {hasStoredWallets ? (
+                <>
+                  <div className={panelDividerClass} />
+                  <section className='space-y-4'>
+                    <div>
+                      <p className={panelSectionTitleClass}>Wallets guardadas</p>
+                      <p className={panelSectionHelperClass}>Desbloquealas con tu contraseña para activarlas.</p>
+                    </div>
+                    <div className='space-y-4'>
                       {storedWallets.map((wallet) => {
                         const isCurrent = walletBeingUnlocked?.address === wallet.address
                         const unlockLabel = isCurrent ? (isUnlocking ? 'Desbloqueando…' : 'Cancelar') : 'Desbloquear'
@@ -666,14 +764,14 @@ function App() {
                           (isCurrent && isUnlocking)
                         return (
                           <div key={wallet.address} className={storedWalletContainerClass}>
-                            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                              <div className="space-y-1">
+                            <div className='flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between'>
+                              <div className='space-y-1'>
                                 <p className={walletItemLabelClass}>{shortenAddress(wallet.address)}</p>
                                 <p className={walletItemSubClass}>{wallet.type === 'mnemonic' ? 'Mnemonic' : 'Clave privada'}</p>
                               </div>
-                              <div className="flex items-center gap-2">
+                              <div className='flex items-center gap-2'>
                                 <button
-                                  type="button"
+                                  type='button'
                                   onClick={() => handleSelectStoredWallet(wallet)}
                                   className={walletActionButtonClass}
                                   disabled={unlockDisabled}
@@ -682,11 +780,11 @@ function App() {
                                   {unlockLabel}
                                 </button>
                                 <button
-                                  type="button"
+                                  type='button'
                                   onClick={() => handleForgetStoredWallet(wallet.address)}
                                   className={walletActionButtonClass}
                                   disabled={isUnlocking || isWalletActivationPending}
-                                  title="Quitar del almacenamiento local"
+                                  title='Quitar del almacenamiento local'
                                 >
                                   Olvidar
                                 </button>
@@ -706,13 +804,39 @@ function App() {
                       })}
                     </div>
                   </section>
-                ) : null}
-              </div>
-            </div>
-          ) : null}
+                </>
+              ) : null}
 
-          {activeTab === 'send' ? (
-            activeWallet ? (
+              <div className={panelDividerClass} />
+              <section className='space-y-3'>
+                <div>
+                  <p className={panelSectionTitleClass}>Importar wallet</p>
+                  <p className={panelSectionHelperClass}>Se cifra localmente si definís una contraseña.</p>
+                </div>
+                <div className='mt-1'>
+                  <WalletImportForm
+                    theme={theme}
+                    onSubmit={handleImportWallet}
+                    disabled={!isConnected || isWalletActivationPending}
+                    loading={isImporting}
+                  />
+                </div>
+              </section>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {showSendModal && activeWallet ? (
+        <div className={modalOverlayClass} role='dialog' aria-modal='true' aria-label='Enviar tokens'>
+          <div className={modalCardClass}>
+            <div className={modalHeaderClass}>
+              <h2 className={modalTitleClass}>Enviar tokens</h2>
+              <button type='button' onClick={() => setShowSendModal(false)} className={modalCloseButtonClass} aria-label='Cerrar'>
+                ×
+              </button>
+            </div>
+            <div className='mt-4'>
               <SendTokensForm
                 theme={theme}
                 client={signingClient}
@@ -723,49 +847,38 @@ function App() {
                 gasPrice={gasPrice}
                 baseDenom={DEFAULT_CHAIN.baseDenom}
                 explorerBaseUrl={DEFAULT_CHAIN.explorerBaseUrl}
-                onRefreshBalance={refreshBalance}
+                onRefreshBalance={handleManualRefreshBalance}
                 onStatusMessage={setStatusMessage}
               />
-            ) : (
-              <div className={inactiveSendClass}>Importá o desbloqueá una wallet antes de enviar tokens.</div>
-            )
-          ) : null}
+            </div>
+          </div>
+        </div>
+      ) : null}
 
-          {activeTab === 'settings' ? (
-            <div className={settingsWrapperClass}>
-              <section className={`${cardClass} md:h-full`}>
-                <div className={settingsCardHeaderClass}>
-                  <div>
-                    <h2 className={sectionTitleClass}>Apariencia</h2>
-                    <p className={mutedTextClass}>Elegí el modo de visualización.</p>
-                  </div>
-                  <button type="button" onClick={toggleTheme} className={toggleButtonClass}>
-                    {isLight ? 'Modo oscuro' : 'Modo claro'}
+      {showReceiveModal && activeWallet ? (
+        <div className={modalOverlayClass} role='dialog' aria-modal='true' aria-label='Recibir tokens'>
+          <div className={modalCardClass}>
+            <div className={modalHeaderClass}>
+              <h2 className={modalTitleClass}>Recibir tokens</h2>
+              <button type='button' onClick={() => setShowReceiveModal(false)} className={modalCloseButtonClass} aria-label='Cerrar'>
+                ×
+              </button>
+            </div>
+            <div className='mt-6 space-y-4 text-center'>
+              <QRCodeSVG value={activeWallet.address} includeMargin size={196} />
+              <div className='space-y-2'>
+                <span className={receiveAddressBoxClass}>{activeWallet.address}</span>
+                <div className='flex justify-center'>
+                  <button type='button' onClick={handleCopyAddress} className={copyButtonClass}>
+                    Copiar dirección
                   </button>
                 </div>
-              </section>
-
-              <div className="md:h-full">
-                <ConnectView
-                  theme={theme}
-                  rpcUrl={rpcUrl}
-                  onRpcUrlChange={setRpcUrl}
-                  expectedChainId={expectedChainId}
-                  onExpectedChainIdChange={setExpectedChainId}
-                  chainId={chainId}
-                  height={height}
-                  isConnected={isConnected}
-                  error={connectionError}
-                  onConnect={handleConnect}
-                  onDisconnect={handleDisconnect}
-                />
               </div>
+              <p className={receiveHintClass}>{CONFIRMATION_GUIDANCE}</p>
             </div>
-          ) : null}
-        </main>
-      </div>
-
-      <TabNavigation items={tabItems} current={activeTab} onSelect={setActiveTab} theme={theme} />
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }
