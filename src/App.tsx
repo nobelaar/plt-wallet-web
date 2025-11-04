@@ -320,9 +320,9 @@ function App() {
 
   const isLight = theme === 'light'
   const pageClass = isLight
-    ? 'min-h-screen bg-gradient-to-b from-slate-100 via-slate-100 to-slate-200 text-slate-900'
-    : 'min-h-screen bg-gradient-to-b from-slate-950 via-slate-950 to-slate-900 text-slate-100'
-  const appShellClass = 'mx-auto flex min-h-screen w-full max-w-md flex-col md:max-w-2xl lg:max-w-3xl xl:max-w-4xl'
+    ? 'min-h-screen bg-gradient-to-b from-slate-100 via-slate-100 to-slate-200 text-slate-900 flex flex-col'
+    : 'min-h-screen bg-gradient-to-b from-slate-950 via-slate-950 to-slate-900 text-slate-100 flex flex-col'
+  const appShellClass = 'mx-auto flex w-full max-w-md flex-1 flex-col md:max-w-2xl lg:max-w-3xl xl:max-w-4xl'
   const mainClass = 'flex-1 px-5 pb-28 pt-6 md:px-8 lg:px-12'
   const headerTitleClass = isLight ? 'text-2xl font-semibold text-slate-900' : 'text-2xl font-semibold text-white'
   const headerSubtitleClass = isLight ? 'text-sm text-slate-500' : 'text-sm text-slate-400'
@@ -495,9 +495,9 @@ function App() {
             </div>
           ) : null}
         </main>
-
-        <TabNavigation items={tabItems} current={activeTab} onSelect={setActiveTab} theme={theme} />
       </div>
+
+      <TabNavigation items={tabItems} current={activeTab} onSelect={setActiveTab} theme={theme} />
     </div>
   )
 }

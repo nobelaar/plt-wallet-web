@@ -19,14 +19,15 @@ function cx(...classes: Array<string | false | null | undefined>) {
 export function TabNavigation({ items, current, onSelect, theme = 'dark' }: TabNavigationProps) {
   const isLight = theme === 'light'
   const navClass = isLight
-    ? 'sticky bottom-0 z-20 border-t border-slate-200 bg-white/95 px-4 pb-5 pt-3 shadow-[0_-10px_30px_rgba(15,23,42,0.08)] backdrop-blur md:px-8'
-    : 'sticky bottom-0 z-20 border-t border-white/10 bg-slate-950/80 px-4 pb-5 pt-3 shadow-[0_-12px_35px_rgba(8,47,73,0.45)] backdrop-blur md:px-8'
-  const gridClass = 'mx-auto grid w-full max-w-md grid-cols-4 gap-3 md:max-w-2xl lg:max-w-3xl'
-  const baseButtonClass = 'group flex flex-col items-center justify-center rounded-2xl border px-3 py-2 text-[0.78rem] font-semibold uppercase tracking-wide transition md:py-3 md:text-sm'
+    ? 'sticky inset-x-0 bottom-0 z-20 w-full flex-shrink-0 border-t border-slate-200 bg-white/95 pb-4 pt-3 shadow-[0_-10px_30px_rgba(15,23,42,0.08)] backdrop-blur'
+    : 'sticky inset-x-0 bottom-0 z-20 w-full flex-shrink-0 border-t border-white/10 bg-slate-950/85 pb-4 pt-3 shadow-[0_-12px_35px_rgba(8,47,73,0.45)] backdrop-blur'
+  const containerClass = 'mx-auto flex w-full max-w-none items-stretch gap-2 px-3 sm:px-4 sm:gap-3 md:px-8'
+  const baseButtonClass =
+    'group flex flex-1 flex-col items-center justify-center rounded-2xl border px-2 py-2 text-[0.7rem] font-semibold uppercase tracking-wide transition sm:px-3 sm:text-xs md:py-3 md:text-sm'
 
   return (
     <nav className={navClass} role="tablist" aria-label="Navegación principal">
-      <div className={gridClass}>
+      <div className={containerClass}>
         {items.map((item) => {
           const isActive = item.id === current
           return (
