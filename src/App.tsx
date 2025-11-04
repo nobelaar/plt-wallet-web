@@ -1,192 +1,63 @@
-import { useEffect, useMemo, useState } from 'react'
-import { DirectSecp256k1HdWallet, DirectSecp256k1Wallet } from '@cosmjs/proto-signing'
-import { SigningStargateClient, GasPrice, calculateFee, coins } from '@cosmjs/stargate'
-import { fromHex } from '@cosmjs/encoding'
-import { validateMnemonic } from 'bip39'
-import { QRCodeSVG } from 'qrcode.react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { GasPrice, SigningStargateClient, StargateClient } from '@cosmjs/stargate'
+
 import {
-  ADDRESS_PREFIX,
-  BASE_DENOM,
-  CHAIN_ID,
-  CONFIRMATION_GUIDANCE,
-  DEFAULT_GAS_PRICE,
-  DISPLAY_DECIMALS,
-  DISPLAY_DENOM,
-  EXPLORER_BASE_URL,
-  RPC_ENDPOINT,
-  STORAGE_KEY,
-} from './config'
+  AccountSummary,
+  SendTokensForm,
+  StoredWalletUnlock,
+  WalletImportForm,
+  type WalletImportPayload,
+} from './components/wallet'
+import ConnectView from './components/ConnectView'
+import { TabNavigation } from './components/TabNavigation'
+import {
+  DEFAULT_CHAIN,
+  clearPersistedWallet,
+  createSignerFromMnemonic,
+  createSignerFromPrivateKey,
+  decryptSecrets,
+  encryptSecrets,
+  formatAmount,
+  getStoredWallet,
+  instantiateSigningClient,
+  persistWallet,
+  shortenAddress,
+} from './lib/wallet'
+import type { ActiveWallet, EncryptedWalletShape } from './lib/wallet'
+import { DEFAULT_GAS_PRICE, DISPLAY_DENOM } from './config'
+import BalancePanel from './components/BalancePanel'
 import './App.css'
 
-type WalletSource = 'mnemonic' | 'privateKey'
+const tabs = [
+  { id: 'connect', label: 'Conexión', description: 'Configurar la red y el RPC' },
+  { id: 'wallet', label: 'Wallet', description: 'Importar, desbloquear y ver tu cuenta' },
+  { id: 'send', label: 'Enviar', description: 'Transferir tokens y revisar movimientos' },
+]
 
-interface ActiveWallet {
-  address: string
-  signer: DirectSecp256k1HdWallet | DirectSecp256k1Wallet
-  type: WalletSource
-}
-
-interface EncryptedWalletShape {
-  address: string
-  type: WalletSource
-  ciphertext: string
-  iv: string
-  salt: string
-}
-
-interface StoredSecrets {
-  mnemonic?: string
-  privateKeyHex?: string
-}
-
-const encoder = new TextEncoder()
-const decoder = new TextDecoder()
-
-const gasPrice = GasPrice.fromString(DEFAULT_GAS_PRICE)
-const DEFAULT_GAS_LIMIT = 200000
-const ADDRESS_REGEX = new RegExp(`^${ADDRESS_PREFIX}1[0-9a-z]{38,58}$`)
-
-function formatAmount(amount: string | undefined): string {
-  if (!amount) return '0'
-  const value = Number(amount) / 10 ** DISPLAY_DECIMALS
-  return value.toLocaleString('es-AR', {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: DISPLAY_DECIMALS,
-  })
-}
-
-async function deriveKey(password: string, salt: Uint8Array) {
-  const keyMaterial = await crypto.subtle.importKey('raw', encoder.encode(password), 'PBKDF2', false, [
-    'deriveKey',
-  ])
-
-  return crypto.subtle.deriveKey(
-    {
-      name: 'PBKDF2',
-      salt: salt.buffer as ArrayBuffer,
-      iterations: 250000,
-      hash: 'SHA-256',
-    },
-    keyMaterial,
-    { name: 'AES-GCM', length: 256 },
-    false,
-    ['encrypt', 'decrypt'],
-  )
-}
-
-function bufferToBase64(buffer: Uint8Array) {
-  let binary = ''
-  buffer.forEach((byte) => {
-    binary += String.fromCharCode(byte)
-  })
-  return btoa(binary)
-}
-
-function base64ToBuffer(value: string) {
-  const binary = atob(value)
-  const buffer = new Uint8Array(binary.length)
-  for (let i = 0; i < binary.length; i += 1) {
-    buffer[i] = binary.charCodeAt(i)
-  }
-  return buffer
-}
-
-async function encryptSecrets(
-  secrets: StoredSecrets,
-  password: string,
-  type: WalletSource,
-  address: string,
-): Promise<EncryptedWalletShape> {
-  const iv = crypto.getRandomValues(new Uint8Array(12))
-  const salt = crypto.getRandomValues(new Uint8Array(16))
-  const key = await deriveKey(password, salt)
-  const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, encoder.encode(JSON.stringify(secrets)))
-
-  return {
-    address,
-    type,
-    ciphertext: bufferToBase64(new Uint8Array(ciphertext)),
-    iv: bufferToBase64(iv),
-    salt: bufferToBase64(salt),
-  }
-}
-
-async function decryptSecrets(payload: EncryptedWalletShape, password: string): Promise<StoredSecrets> {
-  const salt = base64ToBuffer(payload.salt)
-  const iv = base64ToBuffer(payload.iv)
-  const ciphertext = base64ToBuffer(payload.ciphertext)
-  const key = await deriveKey(password, salt)
-  const decrypted = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ciphertext)
-  const json = decoder.decode(decrypted)
-  return JSON.parse(json) as StoredSecrets
-}
-
-function getStoredWallet(): EncryptedWalletShape | null {
-  if (typeof window === 'undefined') return null
-  const stored = window.localStorage.getItem(STORAGE_KEY)
-  if (!stored) return null
-  try {
-    return JSON.parse(stored) as EncryptedWalletShape
-  } catch (error) {
-    console.error('No se pudo parsear la wallet almacenada de manera segura.', error)
-    return null
-  }
-}
-
-function persistWallet(payload: EncryptedWalletShape) {
-  if (typeof window === 'undefined') return
-  window.localStorage.setItem(
-    STORAGE_KEY,
-    JSON.stringify({
-      ...payload,
-    }),
-  )
-}
-
-function clearPersistedWallet() {
-  if (typeof window === 'undefined') return
-  window.localStorage.removeItem(STORAGE_KEY)
-}
-
-function validatePrivateKeyHex(value: string) {
-  return /^[0-9a-fA-F]{64}$/.test(value.trim())
-}
-
-function shortenAddress(address: string) {
-  return `${address.slice(0, 10)}…${address.slice(-7)}`
-}
-
-function generateTotal(amount: number, fee: number) {
-  return (amount + fee).toLocaleString('es-AR', {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: DISPLAY_DECIMALS,
-  })
-}
+type TabId = (typeof tabs)[number]['id']
 
 function App() {
-  const [walletType, setWalletType] = useState<WalletSource>('mnemonic')
-  const [mnemonicInput, setMnemonicInput] = useState('')
-  const [privateKeyInput, setPrivateKeyInput] = useState('')
-  const [passwordInput, setPasswordInput] = useState('')
-  const [shouldPersist, setShouldPersist] = useState(false)
+  const [activeTab, setActiveTab] = useState<TabId>('connect')
+  const [rpcUrl, setRpcUrl] = useState(DEFAULT_CHAIN.rpcUrl)
+  const [expectedChainId, setExpectedChainId] = useState(DEFAULT_CHAIN.chainId)
+  const [connectionError, setConnectionError] = useState<string | null>(null)
+  const [queryClient, setQueryClient] = useState<StargateClient | null>(null)
+  const [chainId, setChainId] = useState<string | null>(null)
+  const [height, setHeight] = useState(0)
+  const [signingClient, setSigningClient] = useState<SigningStargateClient | null>(null)
   const [activeWallet, setActiveWallet] = useState<ActiveWallet | null>(null)
-  const [client, setClient] = useState<SigningStargateClient | null>(null)
-  const [balance, setBalance] = useState<string>('0')
+  const [storedWallet, setStoredWallet] = useState<EncryptedWalletShape | null>(null)
   const [statusMessage, setStatusMessage] = useState<string | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
-  const [unlockPassword, setUnlockPassword] = useState('')
   const [unlockError, setUnlockError] = useState<string | null>(null)
-  const [isImporting, setIsImporting] = useState(false)
   const [isUnlocking, setIsUnlocking] = useState(false)
-  const [isSending, setIsSending] = useState(false)
-  const [destination, setDestination] = useState('')
-  const [amountInput, setAmountInput] = useState('')
-  const [memo, setMemo] = useState('')
-  const [sendError, setSendError] = useState<string | null>(null)
-  const [sendResult, setSendResult] = useState<{ hash: string } | null>(null)
-  const [showConfirm, setShowConfirm] = useState(false)
-  const [feeAmount, setFeeAmount] = useState<number>(0)
-  const [storedWallet, setStoredWallet] = useState<EncryptedWalletShape | null>(null)
+  const [isImporting, setIsImporting] = useState(false)
+  const [balance, setBalance] = useState('0')
+
+  const gasPrice = useMemo(() => GasPrice.fromString(DEFAULT_GAS_PRICE), [])
+
+  const isConnected = Boolean(queryClient)
+  const displayBalance = useMemo(() => formatAmount(balance), [balance])
 
   useEffect(() => {
     const payload = getStoredWallet()
@@ -195,512 +66,332 @@ function App() {
     }
   }, [])
 
-  useEffect(() => {
-    async function refreshBalance() {
-      if (!client || !activeWallet) return
-      try {
-        const response = await client.getBalance(activeWallet.address, BASE_DENOM)
-        setBalance(response?.amount ?? '0')
-      } catch (error) {
-        console.error('No se pudo consultar el balance', error)
-      }
-    }
-
-    refreshBalance()
-  }, [client, activeWallet])
-
-  const displayBalance = useMemo(() => formatAmount(balance), [balance])
-
-  const feeDisplay = useMemo(
-    () => feeAmount.toLocaleString('es-AR', { maximumFractionDigits: DISPLAY_DECIMALS }),
-    [feeAmount],
-  )
-
-  async function instantiateClient(signer: ActiveWallet['signer']) {
-    const signingClient = await SigningStargateClient.connectWithSigner(RPC_ENDPOINT, signer, { gasPrice })
-    const remoteChainId = await signingClient.getChainId()
-    if (remoteChainId !== CHAIN_ID) {
+  const disconnectSigningClient = useCallback(async () => {
+    if (signingClient) {
       await signingClient.disconnect()
-      throw new Error(`Se esperaba chain-id ${CHAIN_ID} pero la red respondió ${remoteChainId}.`)
+      setSigningClient(null)
     }
-    setClient(signingClient)
-    return signingClient
-  }
+  }, [signingClient])
 
-  async function handleImport(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    setErrorMessage(null)
-    setStatusMessage(null)
-    setIsImporting(true)
-
+  const refreshBalance = useCallback(async () => {
+    if (!signingClient || !activeWallet) return
     try {
-      let signer: ActiveWallet['signer']
-      let address: string
-      let secrets: StoredSecrets
-
-      if (walletType === 'mnemonic') {
-        const normalized = mnemonicInput.trim().toLowerCase().replace(/\s+/g, ' ')
-        if (!validateMnemonic(normalized)) {
-          throw new Error('Mnemonic inválido — revisá las palabras y los espacios.')
-        }
-        signer = await DirectSecp256k1HdWallet.fromMnemonic(normalized, {
-          prefix: ADDRESS_PREFIX,
-        })
-        const accounts = await signer.getAccounts()
-        address = accounts[0]?.address ?? ''
-        secrets = { mnemonic: normalized }
-      } else {
-        const cleaned = privateKeyInput.trim()
-        if (!validatePrivateKeyHex(cleaned)) {
-          throw new Error('Clave privada inválida — revisá el formato.')
-        }
-        const keyBytes = fromHex(cleaned)
-        signer = await DirectSecp256k1Wallet.fromKey(keyBytes, ADDRESS_PREFIX)
-        const accounts = await signer.getAccounts()
-        address = accounts[0]?.address ?? ''
-        secrets = { privateKeyHex: cleaned }
-      }
-
-      if (!address) {
-        throw new Error('No se pudo derivar la dirección de la wallet.')
-      }
-
-      if (client) {
-        await client.disconnect()
-        setClient(null)
-      }
-      const signingClient = await instantiateClient(signer)
-      const accountBalance = await signingClient.getBalance(address, BASE_DENOM)
+      const accountBalance = await signingClient.getBalance(activeWallet.address, DEFAULT_CHAIN.baseDenom)
       setBalance(accountBalance?.amount ?? '0')
-      setActiveWallet({ address, signer, type: walletType })
-      setStatusMessage(`Wallet importada correctamente. Dirección ${shortenAddress(address)}.`)
-
-      if (shouldPersist) {
-        if (!passwordInput) {
-          setStatusMessage((prev) =>
-            `${prev ?? ''} Se omitió el guardado porque falta la contraseña para cifrar los datos.`.trim(),
-          )
-        } else {
-          const encrypted = await encryptSecrets(secrets, passwordInput, walletType, address)
-          persistWallet(encrypted)
-          setStatusMessage((prev) => `${prev ?? ''} Se guardó la wallet cifrada en este navegador.`.trim())
-          setStoredWallet(encrypted)
-        }
-      } else {
-        clearPersistedWallet()
-        setStoredWallet(null)
-      }
-
-      setMnemonicInput('')
-      setPrivateKeyInput('')
-      setPasswordInput('')
-      setShouldPersist(false)
     } catch (error) {
-      console.error('Error al importar la wallet', error)
-      if (error instanceof Error) {
-        setErrorMessage(error.message)
-      } else {
-        setErrorMessage('Ocurrió un error inesperado al importar la wallet.')
-      }
-    } finally {
-      setIsImporting(false)
+      console.error('No se pudo consultar el balance', error)
     }
-  }
+  }, [activeWallet, signingClient])
 
-  async function handleUnlock(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    if (!storedWallet) return
-    setUnlockError(null)
-    setIsUnlocking(true)
+  useEffect(() => {
+    refreshBalance()
+  }, [refreshBalance])
+
+  const handleConnect = useCallback(async () => {
+    const trimmedRpc = rpcUrl.trim() || DEFAULT_CHAIN.rpcUrl
+    const trimmedChainId = expectedChainId.trim() || DEFAULT_CHAIN.chainId
+    setConnectionError(null)
+
     try {
-      const secrets = await decryptSecrets(storedWallet, unlockPassword)
-      let signer: ActiveWallet['signer']
-      let address = storedWallet.address
-
-      if (storedWallet.type === 'mnemonic' && secrets.mnemonic) {
-        signer = await DirectSecp256k1HdWallet.fromMnemonic(secrets.mnemonic, { prefix: ADDRESS_PREFIX })
-        const [account] = await signer.getAccounts()
-        address = account?.address ?? storedWallet.address
-      } else if (storedWallet.type === 'privateKey' && secrets.privateKeyHex) {
-        signer = await DirectSecp256k1Wallet.fromKey(fromHex(secrets.privateKeyHex), ADDRESS_PREFIX)
-        const [account] = await signer.getAccounts()
-        address = account?.address ?? storedWallet.address
-      } else {
-        throw new Error('La información almacenada es insuficiente para reconstruir la wallet.')
-      }
-
-      if (client) {
+      const client = await StargateClient.connect(trimmedRpc)
+      const remoteChainId = await client.getChainId()
+      if (remoteChainId !== trimmedChainId) {
         await client.disconnect()
-        setClient(null)
+        throw new Error(`Se esperaba chain-id ${trimmedChainId} pero la red respondió ${remoteChainId}.`)
       }
-      const signingClient = await instantiateClient(signer)
-      const accountBalance = await signingClient.getBalance(address, BASE_DENOM)
-      setBalance(accountBalance?.amount ?? '0')
-      setActiveWallet({ address, signer, type: storedWallet.type })
-      setStatusMessage(`Wallet restaurada correctamente. Dirección ${shortenAddress(address)}.`)
-      setErrorMessage(null)
-      setUnlockError(null)
-      setUnlockPassword('')
+
+      const currentHeight = await client.getHeight()
+
+      if (queryClient) {
+        await queryClient.disconnect()
+      }
+
+      setQueryClient(client)
+      setChainId(remoteChainId)
+      setHeight(currentHeight)
+      setStatusMessage(`Conectado a ${trimmedRpc} (${remoteChainId}).`)
+      setActiveTab('wallet')
     } catch (error) {
-      console.error('Error al desbloquear la wallet', error)
-      if (error instanceof Error) {
-        setUnlockError(`No se pudo restaurar la wallet: ${error.message}`)
-      } else {
-        setUnlockError('No se pudo restaurar la wallet. Revisá la contraseña e intentá de nuevo.')
-      }
-    } finally {
-      setIsUnlocking(false)
+      const message = error instanceof Error ? error.message : 'No se pudo conectar con el RPC indicado.'
+      setConnectionError(message)
+      setQueryClient(null)
+      setChainId(null)
+      setHeight(0)
     }
-  }
+  }, [expectedChainId, queryClient, rpcUrl])
 
-  function resetSendState() {
-    setDestination('')
-    setAmountInput('')
-    setMemo('')
-    setShowConfirm(false)
-    setFeeAmount(0)
-    setSendError(null)
-    setSendResult(null)
-  }
-
-  async function handlePrepareSend(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    setSendError(null)
-    setSendResult(null)
-    if (!client || !activeWallet) {
-      setSendError('Importá una wallet antes de enviar tokens.')
-      return
+  const handleDisconnect = useCallback(async () => {
+    if (queryClient) {
+      await queryClient.disconnect()
     }
+    await disconnectSigningClient()
+    setQueryClient(null)
+    setChainId(null)
+    setHeight(0)
+    setActiveWallet(null)
+    setBalance('0')
+    setStatusMessage('Desconectado del nodo RPC.')
+    setActiveTab('connect')
+  }, [disconnectSigningClient, queryClient])
 
-    const trimmedDestination = destination.trim()
-    if (!ADDRESS_REGEX.test(trimmedDestination)) {
-      setSendError('La dirección destino no tiene un formato válido.')
-      return
-    }
-
-    const amountNumber = Number(amountInput)
-    if (!Number.isFinite(amountNumber) || amountNumber <= 0) {
-      setSendError('Ingresá un monto numérico mayor a cero.')
-      return
-    }
-
-    const amountBase = Math.round(amountNumber * 10 ** DISPLAY_DECIMALS)
-    const available = Number(balance)
-
-    const fee = calculateFee(DEFAULT_GAS_LIMIT, gasPrice)
-    const feeBase = Number(fee.amount[0]?.amount ?? '0')
-    setFeeAmount(feeBase / 10 ** DISPLAY_DECIMALS)
-
-    const totalRequired = amountBase + feeBase
-    if (totalRequired > available) {
-      setSendError('No hay saldo suficiente para cubrir el monto y las comisiones.')
-      return
-    }
-
-    setShowConfirm(true)
-  }
-
-  async function handleSend() {
-    if (!client || !activeWallet) return
-    setIsSending(true)
-    setSendError(null)
-
-    try {
-      const amountNumber = Number(amountInput)
-      const amountBase = Math.round(amountNumber * 10 ** DISPLAY_DECIMALS)
-      const fee = calculateFee(DEFAULT_GAS_LIMIT, gasPrice)
-
-      const result = await client.sendTokens(
-        activeWallet.address,
-        destination.trim(),
-        coins(amountBase, BASE_DENOM),
-        fee,
-        memo.trim() || undefined,
-      )
-
-      if (result.code !== 0) {
-        setSendError(`No se pudo enviar la transacción. Código de error: ${result.code}. Mensaje: ${result.rawLog}`)
+  const handleImportWallet = useCallback(
+    async ({ type, mnemonic, privateKey, password, persist }: WalletImportPayload) => {
+      if (!isConnected) {
+        setErrorMessage('Conectate a una red antes de importar una wallet.')
         return
       }
 
-      setSendResult({ hash: result.transactionHash })
-      setStatusMessage('Transacción enviada con éxito.')
-      const updatedBalance = await client.getBalance(activeWallet.address, BASE_DENOM)
-      setBalance(updatedBalance?.amount ?? balance)
-      setShowConfirm(false)
-      setFeeAmount(0)
-    } catch (error) {
-      console.error('No se pudo enviar la transacción', error)
-      if (typeof error === 'object' && error && 'code' in error) {
-        const code = (error as { code: number }).code
-        const message = (error as { message?: string }).message ?? 'Error desconocido'
-        setSendError(`No se pudo enviar la transacción. Código de error: ${code}. Mensaje: ${message}`)
-      } else if (error instanceof Error) {
-        setSendError(`No se pudo enviar la transacción. Mensaje: ${error.message}`)
-      } else {
-        setSendError('No se pudo enviar la transacción. Revisá los datos e intentá nuevamente.')
-      }
-    } finally {
-      setIsSending(false)
-    }
-  }
+      setErrorMessage(null)
+      setStatusMessage(null)
+      setIsImporting(true)
 
-  function handleCopyAddress() {
+      try {
+        const nextWallet =
+          type === 'mnemonic'
+            ? await createSignerFromMnemonic(mnemonic ?? '')
+            : await createSignerFromPrivateKey(privateKey ?? '')
+
+        await disconnectSigningClient()
+
+        const trimmedRpc = rpcUrl.trim() || DEFAULT_CHAIN.rpcUrl
+        const trimmedChainId = expectedChainId.trim() || DEFAULT_CHAIN.chainId
+        const newSigningClient = await instantiateSigningClient(trimmedRpc, nextWallet.signer, trimmedChainId)
+
+        const accountBalance = await newSigningClient.getBalance(nextWallet.address, DEFAULT_CHAIN.baseDenom)
+
+        setSigningClient(newSigningClient)
+        setActiveWallet({ address: nextWallet.address, signer: nextWallet.signer, type: nextWallet.type })
+        setBalance(accountBalance?.amount ?? '0')
+
+        let status = `Wallet importada correctamente. Dirección ${shortenAddress(nextWallet.address)}.`
+
+        if (persist) {
+          if (!password) {
+            status = `${status} Se omitió el guardado porque falta la contraseña para cifrar los datos.`
+            clearPersistedWallet()
+            setStoredWallet(null)
+          } else {
+            const encrypted = await encryptSecrets(nextWallet.secrets, password, nextWallet.type, nextWallet.address)
+            persistWallet(encrypted)
+            setStoredWallet(encrypted)
+            status = `${status} Se guardó la wallet cifrada en este navegador.`
+          }
+        } else {
+          clearPersistedWallet()
+          setStoredWallet(null)
+        }
+
+        setStatusMessage(status)
+        setActiveTab('wallet')
+      } catch (error) {
+        console.error('Error al importar la wallet', error)
+        const message = error instanceof Error ? error.message : 'Ocurrió un error inesperado al importar la wallet.'
+        setErrorMessage(message)
+      } finally {
+        setIsImporting(false)
+      }
+    },
+    [disconnectSigningClient, expectedChainId, isConnected, rpcUrl],
+  )
+
+  const handleUnlockWallet = useCallback(
+    async (password: string) => {
+      if (!storedWallet) return
+      setUnlockError(null)
+      setIsUnlocking(true)
+
+      try {
+        const secrets = await decryptSecrets(storedWallet, password)
+        let nextWallet: Awaited<ReturnType<typeof createSignerFromMnemonic>> | Awaited<ReturnType<typeof createSignerFromPrivateKey>> | null =
+          null
+
+        if (storedWallet.type === 'mnemonic' && secrets.mnemonic) {
+          nextWallet = await createSignerFromMnemonic(secrets.mnemonic)
+        } else if (storedWallet.type === 'privateKey' && secrets.privateKeyHex) {
+          nextWallet = await createSignerFromPrivateKey(secrets.privateKeyHex)
+        }
+
+        if (!nextWallet) {
+          throw new Error('La información almacenada es insuficiente para reconstruir la wallet.')
+        }
+
+        await disconnectSigningClient()
+
+        const trimmedRpc = rpcUrl.trim() || DEFAULT_CHAIN.rpcUrl
+        const trimmedChainId = expectedChainId.trim() || DEFAULT_CHAIN.chainId
+        const newSigningClient = await instantiateSigningClient(trimmedRpc, nextWallet.signer, trimmedChainId)
+        const accountBalance = await newSigningClient.getBalance(nextWallet.address, DEFAULT_CHAIN.baseDenom)
+
+        setSigningClient(newSigningClient)
+        setActiveWallet({ address: nextWallet.address, signer: nextWallet.signer, type: storedWallet.type })
+        setBalance(accountBalance?.amount ?? '0')
+        setStatusMessage(`Wallet restaurada correctamente. Dirección ${shortenAddress(nextWallet.address)}.`)
+        setErrorMessage(null)
+        setUnlockError(null)
+        setActiveTab('wallet')
+      } catch (error) {
+        console.error('Error al desbloquear la wallet', error)
+        const message =
+          error instanceof Error
+            ? `No se pudo restaurar la wallet: ${error.message}`
+            : 'No se pudo restaurar la wallet. Revisá la contraseña e intentá de nuevo.'
+        setUnlockError(message)
+      } finally {
+        setIsUnlocking(false)
+      }
+    },
+    [disconnectSigningClient, expectedChainId, rpcUrl, storedWallet],
+  )
+
+  const handleForgetWallet = useCallback(() => {
+    clearPersistedWallet()
+    setStoredWallet(null)
+    setUnlockError(null)
+  }, [])
+
+  const handleCopyAddress = useCallback(() => {
     if (!activeWallet) return
     navigator.clipboard
       .writeText(activeWallet.address)
       .then(() => setStatusMessage('Dirección copiada al portapapeles.'))
       .catch(() => setStatusMessage('No se pudo copiar la dirección. Copiala manualmente.'))
-  }
+  }, [activeWallet])
+
+  const tabItems = useMemo(
+    () =>
+      tabs.map((tab) => ({
+        ...tab,
+        disabled: tab.id === 'wallet' ? !isConnected : tab.id === 'send' ? !activeWallet : false,
+      })),
+    [activeWallet, isConnected],
+  )
 
   return (
-    <div className="app">
-      <header>
-        <h1>PLT Wallet Web</h1>
-        <p className="subtitle">Importá tu wallet, enviá y recibí tokens de Cosmos.</p>
-      </header>
+    <div className="min-h-screen bg-slate-950/95 pb-16 text-slate-100">
+      <div className="absolute inset-0 -z-10 bg-[radial-gradient(circle_at_top,_rgba(148,163,255,0.35),_transparent_55%),_radial-gradient(circle_at_bottom,_rgba(45,212,191,0.25),_transparent_60%),_linear-gradient(120deg,_rgba(255,138,168,0.28),_rgba(37,99,235,0.15))]" />
+      <div className="mx-auto flex max-w-6xl flex-col gap-8 px-4 py-12">
+        <header className="space-y-4 text-center">
+          <h1 className="text-3xl font-bold tracking-tight text-white sm:text-4xl">PLT Wallet Web</h1>
+          <p className="mx-auto max-w-2xl text-sm text-slate-300 sm:text-base">
+            Una experiencia metamask-like para Cosmos: conectate al nodo, importá o restaurá tu wallet, enviá y recibí tokens con
+            una interfaz moderna llena de gradientes arcoíris.
+          </p>
+        </header>
 
-      <section className="security">
-        <h2>Seguridad y privacidad</h2>
-        <ul>
-          <li>Nunca compartas tu mnemonic o clave privada. Esta app no la registra en ningún servidor.</li>
-          <li>
-            Si decidís guardar la wallet en este navegador, se cifrará con la contraseña que indiques. Sin contraseña, no se
-            almacena nada.
-          </li>
-          <li>Hacé un backup físico (papel) de tu mnemonic y guardalo en un lugar seguro.</li>
-        </ul>
-      </section>
-
-      {statusMessage ? <div className="status">{statusMessage}</div> : null}
-      {errorMessage ? <div className="error">{errorMessage}</div> : null}
-
-      {!activeWallet && storedWallet ? (
-        <section className="card">
-          <h2>Desbloquear wallet guardada</h2>
-          <p>Ingresá la contraseña para restaurar la wallet cifrada en este navegador.</p>
-          <form onSubmit={handleUnlock} className="form-grid">
-            <label htmlFor="unlock-password">Contraseña</label>
-            <input
-              id="unlock-password"
-              type="password"
-              value={unlockPassword}
-              onChange={(event) => setUnlockPassword(event.target.value)}
-              required
-            />
-            {unlockError ? <div className="error inline">{unlockError}</div> : null}
-            <button type="submit" disabled={isUnlocking} className="primary">
-              {isUnlocking ? 'Desbloqueando…' : 'Desbloquear'}
-            </button>
-            <button
-              type="button"
-              className="link"
-              onClick={() => {
-                clearPersistedWallet()
-                setStoredWallet(null)
-              }}
-            >
-              Olvidar esta wallet
-            </button>
-          </form>
+        <section className="rounded-3xl border border-white/10 bg-slate-900/70 p-6 shadow-xl shadow-indigo-500/20 backdrop-blur-xl">
+          <h2 className="text-lg font-semibold text-white">Seguridad y privacidad</h2>
+          <ul className="mt-4 grid gap-3 text-sm text-slate-300 md:grid-cols-3">
+            <li className="rounded-2xl border border-white/5 bg-slate-950/40 p-4">Nunca compartas tu mnemonic o clave privada. Esta app no la registra en ningún servidor.</li>
+            <li className="rounded-2xl border border-white/5 bg-slate-950/40 p-4">
+              Si decidís guardar la wallet en este navegador, se cifrará con la contraseña que indiques. Sin contraseña, no se
+              almacena nada.
+            </li>
+            <li className="rounded-2xl border border-white/5 bg-slate-950/40 p-4">Hacé un backup físico (papel) de tu mnemonic y guardalo en un lugar seguro.</li>
+          </ul>
         </section>
-      ) : null}
 
-      {!activeWallet ? (
-        <section className="card">
-          <h2>Importar wallet</h2>
-          <form onSubmit={handleImport} className="form-grid">
-            <label htmlFor="type-select">Tipo de clave</label>
-            <select
-              id="type-select"
-              value={walletType}
-              onChange={(event) => {
-                setWalletType(event.target.value as WalletSource)
-                setErrorMessage(null)
-              }}
-            >
-              <option value="mnemonic">Mnemonic BIP39</option>
-              <option value="privateKey">Clave privada (hex)</option>
-            </select>
+        <TabNavigation items={tabItems} current={activeTab} onSelect={setActiveTab} />
 
-            {walletType === 'mnemonic' ? (
-              <>
-                <label htmlFor="mnemonic-input">Mnemonic</label>
-                <textarea
-                  id="mnemonic-input"
-                  value={mnemonicInput}
-                  onChange={(event) => setMnemonicInput(event.target.value)}
-                  placeholder="ingresá las 12 o 24 palabras…"
-                  required
-                  rows={3}
-                />
-              </>
-            ) : (
-              <>
-                <label htmlFor="private-key-input">Clave privada (64 caracteres hexadecimales)</label>
-                <input
-                  id="private-key-input"
-                  value={privateKeyInput}
-                  onChange={(event) => setPrivateKeyInput(event.target.value)}
-                  placeholder="abcd1234…"
-                  required
-                />
-              </>
-            )}
+        {statusMessage ? (
+          <div className="rounded-2xl border border-emerald-400/30 bg-emerald-400/10 px-4 py-3 text-sm text-emerald-100 shadow-lg shadow-emerald-500/20">
+            {statusMessage}
+          </div>
+        ) : null}
+        {errorMessage ? (
+          <div className="rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-100 shadow-lg shadow-rose-500/20">
+            {errorMessage}
+          </div>
+        ) : null}
 
-            <div className="persist">
-              <label htmlFor="persist-toggle">
-                <input
-                  id="persist-toggle"
-                  type="checkbox"
-                  checked={shouldPersist}
-                  onChange={(event) => setShouldPersist(event.target.checked)}
-                />
-                Guardar cifrado en este navegador (opcional)
-              </label>
-            </div>
+        {activeTab === 'connect' ? (
+          <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
+            <ConnectView
+              rpcUrl={rpcUrl}
+              onRpcUrlChange={setRpcUrl}
+              expectedChainId={expectedChainId}
+              onExpectedChainIdChange={setExpectedChainId}
+              chainId={chainId}
+              height={height}
+              isConnected={isConnected}
+              error={connectionError}
+              onConnect={handleConnect}
+              onDisconnect={handleDisconnect}
+            />
+            <BalancePanel client={queryClient} />
+          </div>
+        ) : null}
 
-            {shouldPersist ? (
-              <>
-                <label htmlFor="password-input">Contraseña para cifrar</label>
-                <input
-                  id="password-input"
-                  type="password"
-                  value={passwordInput}
-                  onChange={(event) => setPasswordInput(event.target.value)}
-                  placeholder="mínimo 8 caracteres"
-                  minLength={8}
-                  required
-                />
-              </>
+        {activeTab === 'wallet' ? (
+          <div className="space-y-6">
+            {!activeWallet && storedWallet ? (
+              <section className="rounded-3xl border border-white/10 bg-slate-900/60 p-6 shadow-lg shadow-purple-500/20">
+                <h2 className="text-lg font-semibold text-white">Desbloquear wallet guardada</h2>
+                <p className="mt-1 text-sm text-slate-300">
+                  Ingresá la contraseña para restaurar la wallet cifrada en este navegador.
+                </p>
+                <div className="mt-5">
+                  <StoredWalletUnlock
+                    onUnlock={handleUnlockWallet}
+                    onForget={handleForgetWallet}
+                    loading={isUnlocking}
+                    error={unlockError}
+                  />
+                </div>
+              </section>
             ) : null}
 
-            <button type="submit" className="primary" disabled={isImporting}>
-              {isImporting ? 'Importando…' : 'Importar wallet'}
-            </button>
-          </form>
-        </section>
-      ) : null}
-
-      {activeWallet ? (
-        <section className="card">
-          <h2>Resumen de cuenta</h2>
-          <div className="account-row">
-            <span>Dirección</span>
-            <strong>{activeWallet.address}</strong>
-          </div>
-          <div className="account-row">
-            <span>Balance disponible</span>
-            <strong>
-              {displayBalance} {DISPLAY_DENOM}
-            </strong>
-          </div>
-          <div className="actions">
-            <button type="button" className="secondary" onClick={handleCopyAddress}>
-              Copiar dirección
-            </button>
-            <button type="button" className="secondary" onClick={resetSendState}>
-              Reiniciar envío
-            </button>
-          </div>
-        </section>
-      ) : null}
-
-      {activeWallet ? (
-        <section className="card">
-          <h2>Enviar tokens</h2>
-          <form onSubmit={handlePrepareSend} className="form-grid">
-            <label htmlFor="destination">Dirección destino</label>
-            <input
-              id="destination"
-              value={destination}
-              onChange={(event) => setDestination(event.target.value)}
-              placeholder={`${ADDRESS_PREFIX}1…`}
-              required
-            />
-            <label htmlFor="amount">Monto ({DISPLAY_DENOM})</label>
-            <input
-              id="amount"
-              type="number"
-              min="0"
-              step="0.000001"
-              value={amountInput}
-              onChange={(event) => setAmountInput(event.target.value)}
-              required
-            />
-            <label htmlFor="memo">Memo (opcional)</label>
-            <input id="memo" value={memo} onChange={(event) => setMemo(event.target.value)} placeholder="Referencia opcional" />
-
-            {sendError ? <div className="error inline">{sendError}</div> : null}
-            {sendResult ? (
-              <div className="success">
-                <p>Transacción enviada. Hash: {sendResult.hash}</p>
-                <a href={`${EXPLORER_BASE_URL}${sendResult.hash}`} target="_blank" rel="noreferrer">
-                  Ver en explorer
-                </a>
-              </div>
+            {!activeWallet ? (
+              <section className="rounded-3xl border border-white/10 bg-slate-900/60 p-6 shadow-lg shadow-purple-500/20">
+                <h2 className="text-lg font-semibold text-white">Importar wallet</h2>
+                <p className="mt-1 text-sm text-slate-300">
+                  Elegí el tipo de clave, ingresá tus credenciales y decidí si querés guardarla cifrada en este navegador.
+                </p>
+                <div className="mt-5">
+                  <WalletImportForm onSubmit={handleImportWallet} disabled={!isConnected} loading={isImporting} />
+                </div>
+              </section>
             ) : null}
 
-            <button type="submit" className="primary" disabled={isSending}>
-              Revisar y confirmar
-            </button>
-          </form>
-
-          {showConfirm ? (
-            <div className="confirm">
-              <h3>Confirmar envío</h3>
-              <p>
-                Vas a enviar <strong>{amountInput} {DISPLAY_DENOM}</strong> a <strong>{destination}</strong>.
-              </p>
-              <p>Fee estimado: {feeDisplay} {DISPLAY_DENOM}</p>
-              <p>Total aproximado: {generateTotal(Number(amountInput), feeAmount)} {DISPLAY_DENOM}</p>
-              <button type="button" className="primary" onClick={handleSend} disabled={isSending}>
-                {isSending ? 'Enviando…' : 'Confirmar y enviar'}
-              </button>
-              <button
-                type="button"
-                className="link"
-                onClick={() => {
-                  setShowConfirm(false)
-                  setFeeAmount(0)
-                }}
-              >
-                Cancelar
-              </button>
-            </div>
-          ) : null}
-        </section>
-      ) : null}
-
-      {activeWallet ? (
-        <section className="card">
-          <h2>Recibir tokens</h2>
-          <p>Compartí esta dirección para recibir fondos. Recordá respetar los {DISPLAY_DECIMALS} decimales ({DISPLAY_DENOM}).</p>
-          <div className="receive">
-            <QRCodeSVG value={activeWallet.address} includeMargin size={180} />
-            <div className="receive-info">
-              <p className="address">{activeWallet.address}</p>
-              <button type="button" className="secondary" onClick={handleCopyAddress}>
-                Copiar dirección
-              </button>
-              <small>{CONFIRMATION_GUIDANCE}</small>
-            </div>
+            {activeWallet ? (
+              <AccountSummary wallet={activeWallet} balance={displayBalance} onCopy={handleCopyAddress} />
+            ) : null}
           </div>
-        </section>
-      ) : null}
+        ) : null}
 
-      <footer>
-        <h2>Checklist de QA</h2>
-        <ul>
-          <li>Importar mnemonic válido deriva la dirección correcta y muestra balance.</li>
-          <li>Importar clave privada válida deriva la dirección correcta y muestra balance.</li>
-          <li>Errores claros al importar mnemonic/clave inválidos.</li>
-          <li>Envío con saldo suficiente firma, transmite y muestra hash.</li>
-          <li>Envío con saldo insuficiente muestra error y no envía.</li>
-          <li>Restauración con contraseña correcta tras recargar (si se guardó cifrada).</li>
-          <li>Botón copiar y QR funcionando para recibir.</li>
-        </ul>
-      </footer>
+        {activeTab === 'send' ? (
+          activeWallet ? (
+            <SendTokensForm
+              client={signingClient}
+              senderAddress={activeWallet.address}
+              balanceBaseAmount={balance}
+              denom={DISPLAY_DENOM}
+              decimals={DEFAULT_CHAIN.denomDecimals}
+              gasPrice={gasPrice}
+              baseDenom={DEFAULT_CHAIN.baseDenom}
+              explorerBaseUrl={DEFAULT_CHAIN.explorerBaseUrl}
+              onRefreshBalance={refreshBalance}
+              onStatusMessage={setStatusMessage}
+            />
+          ) : (
+            <div className="rounded-3xl border border-white/10 bg-slate-900/60 p-6 text-center text-sm text-slate-300 shadow-lg shadow-purple-500/20">
+              Importá o desbloqueá una wallet antes de enviar tokens.
+            </div>
+          )
+        ) : null}
+
+        <footer className="rounded-3xl border border-white/10 bg-slate-900/70 p-6 shadow-xl shadow-indigo-500/20">
+          <h2 className="text-lg font-semibold text-white">Checklist de QA</h2>
+          <ul className="mt-3 grid gap-2 text-sm text-slate-300 sm:grid-cols-2">
+            <li>Importar mnemonic válido deriva la dirección correcta y muestra balance.</li>
+            <li>Importar clave privada válida deriva la dirección correcta y muestra balance.</li>
+            <li>Errores claros al importar mnemonic/clave inválidos.</li>
+            <li>Envío con saldo suficiente firma, transmite y muestra hash.</li>
+            <li>Envío con saldo insuficiente muestra error y no envía.</li>
+            <li>Restauración con contraseña correcta tras recargar (si se guardó cifrada).</li>
+            <li>Botón copiar y QR funcionando para recibir.</li>
+          </ul>
+        </footer>
+      </div>
     </div>
   )
 }
