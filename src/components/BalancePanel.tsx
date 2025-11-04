@@ -31,8 +31,8 @@ export function BalancePanel({ client, theme = 'dark' }: BalancePanelProps) {
 
   const isLight = theme === 'light'
   const sectionClass = isLight
-    ? 'rounded-2xl border border-slate-200 bg-white/80 p-6 shadow-lg shadow-slate-200/50 backdrop-blur-sm'
-    : 'rounded-2xl border border-slate-700/60 bg-slate-900/40 p-6 shadow-xl shadow-blue-900/20 backdrop-blur-sm'
+    ? 'h-full rounded-2xl border border-slate-200 bg-white/80 p-6 shadow-lg shadow-slate-200/50 backdrop-blur-sm'
+    : 'h-full rounded-2xl border border-slate-700/60 bg-slate-900/40 p-6 shadow-xl shadow-blue-900/20 backdrop-blur-sm'
   const headingClass = isLight ? 'text-lg font-semibold text-slate-900' : 'text-lg font-semibold text-slate-100'
   const subtitleClass = isLight ? 'text-sm text-slate-500' : 'text-sm text-slate-400'
   const labelClass = isLight ? 'text-sm font-medium text-slate-700' : 'text-sm font-medium text-slate-200'

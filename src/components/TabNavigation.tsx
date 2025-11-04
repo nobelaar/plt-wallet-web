@@ -19,10 +19,10 @@ function cx(...classes: Array<string | false | null | undefined>) {
 export function TabNavigation({ items, current, onSelect, theme = 'dark' }: TabNavigationProps) {
   const isLight = theme === 'light'
   const navClass = isLight
-    ? 'sticky bottom-0 z-20 border-t border-slate-200 bg-white/95 px-4 pb-5 pt-3 shadow-[0_-10px_30px_rgba(15,23,42,0.08)] backdrop-blur'
-    : 'sticky bottom-0 z-20 border-t border-white/10 bg-slate-950/80 px-4 pb-5 pt-3 shadow-[0_-12px_35px_rgba(8,47,73,0.45)] backdrop-blur'
-  const gridClass = 'grid grid-cols-4 gap-3'
-  const baseButtonClass = 'group flex flex-col items-center justify-center rounded-2xl border px-3 py-2 text-xs font-semibold transition'
+    ? 'sticky bottom-0 z-20 border-t border-slate-200 bg-white/95 px-4 pb-5 pt-3 shadow-[0_-10px_30px_rgba(15,23,42,0.08)] backdrop-blur md:px-8'
+    : 'sticky bottom-0 z-20 border-t border-white/10 bg-slate-950/80 px-4 pb-5 pt-3 shadow-[0_-12px_35px_rgba(8,47,73,0.45)] backdrop-blur md:px-8'
+  const gridClass = 'mx-auto grid w-full max-w-md grid-cols-4 gap-3 md:max-w-2xl lg:max-w-3xl'
+  const baseButtonClass = 'group flex flex-col items-center justify-center rounded-2xl border px-3 py-2 text-[0.78rem] font-semibold uppercase tracking-wide transition md:py-3 md:text-sm'
 
   return (
     <nav className={navClass} role="tablist" aria-label="Navegación principal">
@@ -49,7 +49,7 @@ export function TabNavigation({ items, current, onSelect, theme = 'dark' }: TabN
                 item.disabled && !isActive && 'cursor-not-allowed opacity-40 hover:border-transparent hover:bg-transparent',
               )}
             >
-              <span className="text-[0.78rem] uppercase tracking-wide">{item.label}</span>
+              <span>{item.label}</span>
               <span
                 className={cx(
                   'mt-2 h-1.5 w-8 rounded-full transition',

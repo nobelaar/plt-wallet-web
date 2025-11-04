@@ -39,6 +39,7 @@ type TabId = (typeof tabs)[number]['id']
 type ThemeMode = 'light' | 'dark'
 
 const THEME_STORAGE_KEY = 'plt-wallet-theme'
+const TIPS_STORAGE_KEY = 'plt-wallet-tips'
 
 const resolveInitialTheme = (): ThemeMode => {
   if (typeof window !== 'undefined') {
@@ -48,6 +49,13 @@ const resolveInitialTheme = (): ThemeMode => {
     }
   }
   return 'light'
+}
+
+const resolveInitialTipsVisibility = (): boolean => {
+  if (typeof window !== 'undefined') {
+    return window.localStorage.getItem(TIPS_STORAGE_KEY) !== 'hidden'
+  }
+  return true
 }
 
 function App() {
@@ -68,6 +76,7 @@ function App() {
   const [isImporting, setIsImporting] = useState(false)
   const [balance, setBalance] = useState('0')
   const [theme, setTheme] = useState<ThemeMode>(() => resolveInitialTheme())
+  const [showTips, setShowTips] = useState<boolean>(() => resolveInitialTipsVisibility())
 
   const gasPrice = useMemo(() => GasPrice.fromString(DEFAULT_GAS_PRICE), [])
 
@@ -90,6 +99,12 @@ function App() {
       window.localStorage.setItem(THEME_STORAGE_KEY, theme)
     }
   }, [theme])
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem(TIPS_STORAGE_KEY, showTips ? 'visible' : 'hidden')
+    }
+  }, [showTips])
 
   const toggleTheme = useCallback(() => {
     setTheme((current) => (current === 'light' ? 'dark' : 'light'))
@@ -286,6 +301,14 @@ function App() {
       .catch(() => setStatusMessage('No se pudo copiar la dirección. Copiala manualmente.'))
   }, [activeWallet])
 
+  const handleHideTips = useCallback(() => {
+    setShowTips(false)
+  }, [])
+
+  const handleShowTips = useCallback(() => {
+    setShowTips(true)
+  }, [])
+
   const tabItems = useMemo(
     () =>
       tabs.map((tab) => ({
@@ -299,8 +322,8 @@ function App() {
   const pageClass = isLight
     ? 'min-h-screen bg-gradient-to-b from-slate-100 via-slate-100 to-slate-200 text-slate-900'
     : 'min-h-screen bg-gradient-to-b from-slate-950 via-slate-950 to-slate-900 text-slate-100'
-  const appShellClass = 'mx-auto flex min-h-screen w-full max-w-md flex-col'
-  const mainClass = 'flex-1 overflow-y-auto px-5 pb-28 pt-6'
+  const appShellClass = 'mx-auto flex min-h-screen w-full max-w-md flex-col md:max-w-2xl lg:max-w-3xl xl:max-w-4xl'
+  const mainClass = 'flex-1 px-5 pb-28 pt-6 md:px-8 lg:px-12'
   const headerTitleClass = isLight ? 'text-2xl font-semibold text-slate-900' : 'text-2xl font-semibold text-white'
   const headerSubtitleClass = isLight ? 'text-sm text-slate-500' : 'text-sm text-slate-400'
   const sectionTitleClass = isLight ? 'text-lg font-semibold text-slate-900' : 'text-lg font-semibold text-white'
@@ -329,6 +352,15 @@ function App() {
   const toggleButtonClass = isLight
     ? 'inline-flex items-center gap-2 rounded-full border border-slate-300 bg-white/90 px-4 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-100'
     : 'inline-flex items-center gap-2 rounded-full border border-white/20 bg-slate-900/80 px-4 py-2 text-sm font-medium text-slate-100 shadow-lg transition hover:border-white/40 hover:bg-slate-900'
+  const homeWrapperClass = showTips ? 'space-y-5 md:grid md:grid-cols-2 md:gap-6 md:space-y-0' : 'space-y-5'
+  const tipsHeaderClass = 'flex items-start justify-between gap-3'
+  const tipsDismissButtonClass = isLight
+    ? 'inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white/80 px-3 py-1 text-xs font-medium text-slate-500 transition hover:border-slate-400 hover:text-slate-700'
+    : 'inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-slate-900/80 px-3 py-1 text-xs font-medium text-slate-300 transition hover:border-white/40 hover:text-white'
+  const tipsRestoreButtonClass = isLight
+    ? 'inline-flex items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-slate-300 hover:bg-slate-100'
+    : 'inline-flex items-center justify-center rounded-2xl border border-white/10 bg-slate-900/80 px-4 py-3 text-sm font-semibold text-slate-100 shadow-lg transition hover:border-white/30 hover:bg-slate-900'
+  const settingsWrapperClass = 'space-y-5 md:grid md:grid-cols-2 md:gap-6 md:space-y-0'
 
   return (
     <div className={pageClass}>
@@ -343,20 +375,37 @@ function App() {
           {errorMessage ? <div className={`mb-4 ${errorClass}`}>{errorMessage}</div> : null}
 
           {activeTab === 'home' ? (
-            <div className="space-y-5">
-              <section className={cardClass}>
-                <h2 className={sectionTitleClass}>Recomendaciones rápidas</h2>
-                <ul className="mt-4 space-y-3">
-                  <li className={infoCardClass}>Nunca compartas tu mnemonic o clave privada. Esta app no la registra en ningún servidor.</li>
-                  <li className={infoCardClass}>
-                    Si decidís guardar la wallet en este navegador, se cifrará con la contraseña que indiques. Sin contraseña, no se
-                    almacena nada.
-                  </li>
-                  <li className={infoCardClass}>Hacé un backup físico (papel) de tu mnemonic y guardalo en un lugar seguro.</li>
-                </ul>
-              </section>
+            <div className="space-y-6">
+              <div className={homeWrapperClass}>
+                {showTips ? (
+                  <section className={`${cardClass} space-y-4`}>
+                    <div className={tipsHeaderClass}>
+                      <h2 className={sectionTitleClass}>Recomendaciones rápidas</h2>
+                      <button type="button" onClick={handleHideTips} className={tipsDismissButtonClass}>
+                        Ocultar
+                      </button>
+                    </div>
+                    <ul className="space-y-3">
+                      <li className={infoCardClass}>Nunca compartas tu mnemonic o clave privada. Esta app no la registra en ningún servidor.</li>
+                      <li className={infoCardClass}>
+                        Si decidís guardar la wallet en este navegador, se cifrará con la contraseña que indiques. Sin contraseña, no se
+                        almacena nada.
+                      </li>
+                      <li className={infoCardClass}>Hacé un backup físico (papel) de tu mnemonic y guardalo en un lugar seguro.</li>
+                    </ul>
+                  </section>
+                ) : null}
 
-              <BalancePanel client={queryClient} theme={theme} />
+                <div>
+                  <BalancePanel client={queryClient} theme={theme} />
+                </div>
+              </div>
+
+              {!showTips ? (
+                <button type="button" onClick={handleShowTips} className={tipsRestoreButtonClass}>
+                  Mostrar recomendaciones
+                </button>
+              ) : null}
             </div>
           ) : null}
 
@@ -415,8 +464,8 @@ function App() {
           ) : null}
 
           {activeTab === 'settings' ? (
-            <div className="space-y-5">
-              <section className={cardClass}>
+            <div className={settingsWrapperClass}>
+              <section className={`${cardClass} md:h-full`}>
                 <div className={settingsCardHeaderClass}>
                   <div>
                     <h2 className={sectionTitleClass}>Apariencia</h2>
@@ -428,19 +477,21 @@ function App() {
                 </div>
               </section>
 
-              <ConnectView
-                theme={theme}
-                rpcUrl={rpcUrl}
-                onRpcUrlChange={setRpcUrl}
-                expectedChainId={expectedChainId}
-                onExpectedChainIdChange={setExpectedChainId}
-                chainId={chainId}
-                height={height}
-                isConnected={isConnected}
-                error={connectionError}
-                onConnect={handleConnect}
-                onDisconnect={handleDisconnect}
-              />
+              <div className="md:h-full">
+                <ConnectView
+                  theme={theme}
+                  rpcUrl={rpcUrl}
+                  onRpcUrlChange={setRpcUrl}
+                  expectedChainId={expectedChainId}
+                  onExpectedChainIdChange={setExpectedChainId}
+                  chainId={chainId}
+                  height={height}
+                  isConnected={isConnected}
+                  error={connectionError}
+                  onConnect={handleConnect}
+                  onDisconnect={handleDisconnect}
+                />
+              </div>
             </div>
           ) : null}
         </main>
