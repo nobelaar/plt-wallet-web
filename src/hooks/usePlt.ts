@@ -14,6 +14,18 @@ export interface UsePltResult {
   disconnect: () => void
 }
 
+async function disconnectSafely(instance: StargateClient | null) {
+  if (!instance) {
+    return
+  }
+
+  try {
+    await Promise.resolve(instance.disconnect())
+  } catch (error) {
+    console.warn('No se pudo cerrar la conexión al RPC de manera limpia.', error)
+  }
+}
+
 export function usePlt(rpcUrl: string, initialChainId?: string): UsePltResult {
   const [client, setClient] = useState<StargateClient | null>(null)
   const [chainId, setChainId] = useState<string | null>(initialChainId ?? null)
@@ -39,9 +51,7 @@ export function usePlt(rpcUrl: string, initialChainId?: string): UsePltResult {
 
   useEffect(() => {
     return () => {
-      if (client) {
-        client.disconnect().catch(() => undefined)
-      }
+      void disconnectSafely(client)
     }
   }, [client])
 
@@ -59,7 +69,7 @@ export function usePlt(rpcUrl: string, initialChainId?: string): UsePltResult {
 
     try {
       if (client) {
-        await client.disconnect()
+        await disconnectSafely(client)
         setClient(null)
       }
 
@@ -78,9 +88,9 @@ export function usePlt(rpcUrl: string, initialChainId?: string): UsePltResult {
       }
     } catch (err) {
       if (nextClient) {
-        await nextClient.disconnect().catch(() => undefined)
+        await disconnectSafely(nextClient)
       } else if (client) {
-        await client.disconnect().catch(() => undefined)
+        await disconnectSafely(client)
       }
       setClient(null)
       setChainId(initialChainId ?? null)
@@ -93,7 +103,7 @@ export function usePlt(rpcUrl: string, initialChainId?: string): UsePltResult {
 
   const disconnect = useCallback(() => {
     if (client) {
-      client.disconnect().catch(() => undefined)
+      void disconnectSafely(client)
     }
     setClient(null)
     setChainId(initialChainId ?? null)
