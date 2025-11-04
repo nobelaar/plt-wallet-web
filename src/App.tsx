@@ -80,6 +80,7 @@ function App() {
   const [balance, setBalance] = useState('0')
   const [walletBalances, setWalletBalances] = useState<Record<string, string>>({})
   const [isRefreshingBalance, setIsRefreshingBalance] = useState(false)
+  const [activatingWalletAddress, setActivatingWalletAddress] = useState<string | null>(null)
   const [theme, setTheme] = useState<ThemeMode>(() => resolveInitialTheme())
   const [showTips, setShowTips] = useState<boolean>(() => resolveInitialTipsVisibility())
 
@@ -130,8 +131,10 @@ function App() {
       const amount = accountBalance?.amount ?? '0'
       setBalance(amount)
       setWalletBalances((prev) => ({ ...prev, [activeWallet.address]: amount }))
+      setErrorMessage(null)
     } catch (error) {
       console.error('No se pudo consultar el balance', error)
+      setErrorMessage('No se pudo actualizar el balance. Revisá la conexión e intentá nuevamente.')
     } finally {
       setIsRefreshingBalance(false)
     }
@@ -140,6 +143,7 @@ function App() {
   const activateWallet = useCallback(
     async (wallet: ActiveWallet) => {
       setIsWalletActivationPending(true)
+      setActivatingWalletAddress(wallet.address)
       try {
         await disconnectSigningClient()
         const trimmedRpc = rpcUrl.trim() || DEFAULT_CHAIN.rpcUrl
@@ -169,11 +173,19 @@ function App() {
           throw error
         }
       } finally {
+        setActivatingWalletAddress(null)
         setIsWalletActivationPending(false)
       }
     },
     [disconnectSigningClient, expectedChainId, rpcUrl],
   )
+
+  const handleManualRefreshBalance = useCallback(async () => {
+    await refreshBalance()
+    if (signingClient && activeWallet) {
+      setStatusMessage('Balance actualizado.')
+    }
+  }, [activeWallet, refreshBalance, signingClient])
 
   useEffect(() => {
     refreshBalance()
@@ -391,9 +403,25 @@ function App() {
     () =>
       tabs.map((tab) => ({
         ...tab,
+        description:
+          tab.id === 'wallet'
+            ? activeWallet
+              ? `Activa: ${shortenAddress(activeWallet.address)}`
+              : 'Sin wallet activa'
+            : tab.id === 'send'
+              ? activeWallet
+                ? 'Listo para enviar'
+                : 'Requiere wallet'
+            : tab.id === 'settings'
+                ? chainId
+                  ? `Chain: ${chainId}`
+                  : isConnected
+                    ? 'RPC conectado'
+                    : 'Sin conexión'
+                : tab.description,
         disabled: tab.id === 'wallet' ? !isConnected : tab.id === 'send' ? !activeWallet : false,
       })),
-    [activeWallet, isConnected],
+    [activeWallet, chainId, isConnected],
   )
 
   const isLight = theme === 'light'
@@ -439,10 +467,11 @@ function App() {
     ? 'inline-flex items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-slate-300 hover:bg-slate-100'
     : 'inline-flex items-center justify-center rounded-2xl border border-white/10 bg-slate-900/80 px-4 py-3 text-sm font-semibold text-slate-100 shadow-lg transition hover:border-white/30 hover:bg-slate-900'
   const settingsWrapperClass = 'space-y-5 md:grid md:grid-cols-2 md:gap-6 md:space-y-0'
+  const walletLayoutClass = 'space-y-5 md:grid md:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)] md:gap-6 md:space-y-0'
   const walletListClass = 'mt-4 space-y-3'
-  const walletItemClass = isLight
-    ? 'flex items-center justify-between rounded-2xl border border-slate-200 bg-white/80 px-4 py-3 shadow-sm shadow-slate-200/60'
-    : 'flex items-center justify-between rounded-2xl border border-white/10 bg-slate-900/70 px-4 py-3 shadow-lg shadow-indigo-500/20'
+  const walletItemBaseClass = isLight
+    ? 'flex items-center justify-between rounded-2xl border border-slate-200 bg-white/85 px-4 py-3 shadow-sm transition'
+    : 'flex items-center justify-between rounded-2xl border border-white/10 bg-slate-900/70 px-4 py-3 shadow-lg transition'
   const walletItemLabelClass = isLight ? 'text-sm font-semibold text-slate-800' : 'text-sm font-semibold text-slate-100'
   const walletItemSubClass = isLight ? 'text-xs text-slate-500' : 'text-xs text-slate-400'
   const walletActionButtonClass = isLight
@@ -455,6 +484,9 @@ function App() {
     ? 'space-y-3 rounded-2xl border border-slate-200 bg-white/80 p-4 shadow-sm shadow-slate-200/60'
     : 'space-y-3 rounded-2xl border border-white/10 bg-slate-900/70 p-4 shadow-lg shadow-indigo-500/20'
   const walletTagClass = isLight ? 'text-[11px] uppercase tracking-wide text-slate-500' : 'text-[11px] uppercase tracking-wide text-slate-400'
+  const infoPillClass = isLight
+    ? 'inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-100/70 px-3 py-1 text-xs font-medium text-slate-600'
+    : 'inline-flex items-center gap-2 rounded-full border border-white/5 bg-slate-900/70 px-3 py-1 text-xs font-medium text-slate-300'
 
   return (
     <div className={pageClass}>
@@ -504,126 +536,178 @@ function App() {
           ) : null}
 
           {activeTab === 'wallet' ? (
-            <div className="space-y-5">
-              {activeWallet ? (
-                <AccountSummary
-                  theme={theme}
-                  wallet={activeWallet}
-                  balance={displayBalance}
-                  onCopy={handleCopyAddress}
-                  onRefreshBalance={refreshBalance}
-                  refreshingBalance={isRefreshingBalance}
-                />
-              ) : (
-                <section className={secondaryCardClass}>
-                  <h2 className={sectionTitleClass}>Sin wallet activa</h2>
-                  <p className={mutedTextClass}>Importá una wallet o desbloqueá una guardada para ver el resumen de la cuenta.</p>
-                </section>
-              )}
-
-              <section className={secondaryCardClass}>
-                <h2 className={sectionTitleClass}>Tus wallets</h2>
-                <p className={mutedTextClass}>Podés importar varias wallets y alternar entre ellas cuando quieras.</p>
-                {wallets.length ? (
-                  <ul className={walletListClass}>
-                    {wallets.map((walletItem) => {
-                      const isActiveWallet = activeWallet?.address === walletItem.address
-                      const knownBalance = walletBalances[walletItem.address]
-                      const balanceLabel =
-                        knownBalance !== undefined ? `${formatAmount(knownBalance)} ${DISPLAY_DENOM}` : 'Balance pendiente'
-                      return (
-                        <li key={walletItem.address} className={walletItemClass}>
-                          <div className="space-y-1">
-                            <p className={walletItemLabelClass}>{shortenAddress(walletItem.address)}</p>
-                            <p className={walletItemSubClass}>
-                              <span className={walletTagClass}>{walletItem.type === 'mnemonic' ? 'Mnemonic' : 'Clave privada'}</span>
-                              <span> · {balanceLabel}</span>
-                            </p>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            {isActiveWallet ? (
-                              <span className={walletActiveBadgeClass}>Activa</span>
-                            ) : (
-                              <button
-                                type="button"
-                                onClick={() => handleSelectWallet(walletItem.address)}
-                                className={walletActionButtonClass}
-                                disabled={isWalletActivationPending || !isConnected}
-                              >
-                                Usar
-                              </button>
-                            )}
-                          </div>
-                        </li>
-                      )
-                    })}
-                  </ul>
+            <div className={walletLayoutClass}>
+              <div className="space-y-5">
+                {activeWallet ? (
+                  <section className="space-y-4">
+                    <AccountSummary
+                      theme={theme}
+                      wallet={activeWallet}
+                      balance={displayBalance}
+                      onCopy={handleCopyAddress}
+                      onRefreshBalance={handleManualRefreshBalance}
+                      refreshingBalance={isRefreshingBalance}
+                    />
+                    <div className="flex flex-wrap gap-2" aria-live="polite">
+                      <span className={infoPillClass} title="Se usa para enviar y firmar transacciones.">
+                        La wallet activa firma y envía tus operaciones.
+                      </span>
+                      <span className={infoPillClass} title="Podés alternar sin volver a importar.">
+                        Cambiá de wallet desde la sección de gestión.
+                      </span>
+                    </div>
+                  </section>
                 ) : (
-                  <p className={`${mutedTextClass} mt-4`}>Cuando importes o desbloquees wallets, aparecerán acá.</p>
+                  <section className={secondaryCardClass}>
+                    <h2 className={sectionTitleClass}>Sin wallet activa</h2>
+                    <p className={mutedTextClass}>
+                      Importá una wallet o desbloqueá una guardada para ver el resumen de la cuenta y poder firmar operaciones.
+                    </p>
+                  </section>
                 )}
-              </section>
 
-              {storedWallets.length ? (
                 <section className={secondaryCardClass}>
-                  <h2 className={sectionTitleClass}>Wallets guardadas en este navegador</h2>
-                  <p className={mutedTextClass}>Desbloquealas con tu contraseña para usarlas en esta sesión.</p>
-                  <div className="mt-4 space-y-4">
-                    {storedWallets.map((wallet) => {
-                      const isCurrent = walletBeingUnlocked?.address === wallet.address
-                      return (
-                        <div key={wallet.address} className={storedWalletContainerClass}>
-                          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                            <div className="space-y-1">
-                              <p className={walletItemLabelClass}>{shortenAddress(wallet.address)}</p>
-                              <p className={walletItemSubClass}>{wallet.type === 'mnemonic' ? 'Mnemonic' : 'Clave privada'}</p>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <button
-                                type="button"
-                                onClick={() => handleSelectStoredWallet(wallet)}
-                                className={walletActionButtonClass}
-                                disabled={(isUnlocking || isWalletActivationPending) && !isCurrent}
-                              >
-                                {isCurrent ? 'Cancelar' : 'Desbloquear'}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleForgetStoredWallet(wallet.address)}
-                                className={walletActionButtonClass}
-                                disabled={isUnlocking || isWalletActivationPending}
-                              >
-                                Olvidar
-                              </button>
-                            </div>
-                          </div>
-                          {isCurrent ? (
-                            <StoredWalletUnlock
-                              theme={theme}
-                              onUnlock={handleUnlockWallet}
-                              onForget={() => handleForgetStoredWallet(wallet.address)}
-                              loading={isUnlocking}
-                              error={walletBeingUnlocked?.address === wallet.address ? unlockError : null}
-                            />
-                          ) : null}
-                        </div>
-                      )
-                    })}
+                  <h2 className={sectionTitleClass}>Importar wallet</h2>
+                  <p className={mutedTextClass}>
+                    Elegí el tipo de clave, ingresá tus credenciales y definí si querés guardarla cifrada en este navegador.
+                  </p>
+                  <div className="mt-5">
+                    <WalletImportForm
+                      theme={theme}
+                      onSubmit={handleImportWallet}
+                      disabled={!isConnected || isWalletActivationPending}
+                      loading={isImporting}
+                    />
                   </div>
                 </section>
-              ) : null}
+              </div>
 
-              <section className={secondaryCardClass}>
-                <h2 className={sectionTitleClass}>Importar wallet</h2>
-                <p className={mutedTextClass}>Elegí el tipo de clave, ingresá tus credenciales y definí si querés guardarla cifrada.</p>
-                <div className="mt-5">
-                  <WalletImportForm
-                    theme={theme}
-                    onSubmit={handleImportWallet}
-                    disabled={!isConnected || isWalletActivationPending}
-                    loading={isImporting}
-                  />
-                </div>
-              </section>
+              <div className="space-y-5">
+                <section className={secondaryCardClass}>
+                  <h2 className={sectionTitleClass}>Tus wallets</h2>
+                  <p className={mutedTextClass}>
+                    Administrá todas las wallets activas en esta sesión. La seleccionada se usa automáticamente para enviar tokens.
+                  </p>
+                  {wallets.length ? (
+                    <ul className={walletListClass}>
+                      {wallets.map((walletItem) => {
+                        const isActiveWallet = activeWallet?.address === walletItem.address
+                        const isActivating = activatingWalletAddress === walletItem.address && isWalletActivationPending
+                        const knownBalance = walletBalances[walletItem.address]
+                        const balanceLabel =
+                          knownBalance !== undefined ? `${formatAmount(knownBalance)} ${DISPLAY_DENOM}` : 'Balance pendiente'
+                        const walletItemClass = [
+                          walletItemBaseClass,
+                          isActiveWallet
+                            ? isLight
+                              ? 'border-emerald-400/60 bg-emerald-50/80 ring-2 ring-emerald-300/70 shadow-lg'
+                              : 'border-emerald-400/40 bg-emerald-500/10 ring-2 ring-emerald-400/50 shadow-lg'
+                            : isActivating
+                              ? isLight
+                                ? 'border-sky-300 bg-sky-100/70 ring-2 ring-sky-300/60 animate-pulse'
+                                : 'border-sky-500/60 bg-sky-500/10 ring-2 ring-sky-500/60 animate-pulse'
+                              : ''
+                        ]
+                          .filter(Boolean)
+                          .join(' ')
+                        return (
+                          <li key={walletItem.address} className={walletItemClass}>
+                            <div className="space-y-1">
+                              <p className={walletItemLabelClass}>{shortenAddress(walletItem.address)}</p>
+                              <p className={walletItemSubClass}>
+                                <span className={walletTagClass}>{walletItem.type === 'mnemonic' ? 'Mnemonic' : 'Clave privada'}</span>
+                                <span> · {balanceLabel}</span>
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              {isActiveWallet ? (
+                                <span className={walletActiveBadgeClass}>Activa</span>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => handleSelectWallet(walletItem.address)}
+                                  className={walletActionButtonClass}
+                                  disabled={isWalletActivationPending || !isConnected}
+                                  title={isConnected ? 'Cambiar wallet activa' : 'Necesitás estar conectado para alternar'}
+                                >
+                                  {isActivating ? 'Activando…' : 'Usar'}
+                                </button>
+                              )}
+                            </div>
+                          </li>
+                        )
+                      })}
+                    </ul>
+                  ) : (
+                    <p className={`${mutedTextClass} mt-4`}>Cuando importes o desbloquees wallets, aparecerán acá.</p>
+                  )}
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <span className={infoPillClass}>Podés refrescar el balance desde el resumen de la wallet activa.</span>
+                    <span className={infoPillClass}>Las wallets agregadas se mantienen mientras dure esta sesión.</span>
+                  </div>
+                </section>
+
+                {storedWallets.length ? (
+                  <section className={secondaryCardClass}>
+                    <h2 className={sectionTitleClass}>Wallets guardadas en este navegador</h2>
+                    <p className={mutedTextClass}>Desbloquealas con tu contraseña para activarlas cuando las necesites.</p>
+                    <div className="mt-4 space-y-4">
+                      {storedWallets.map((wallet) => {
+                        const isCurrent = walletBeingUnlocked?.address === wallet.address
+                        const unlockLabel = isCurrent ? (isUnlocking ? 'Desbloqueando…' : 'Cancelar') : 'Desbloquear'
+                        const unlockTitle = isCurrent
+                          ? isUnlocking
+                            ? 'Esperá a que termine el desbloqueo.'
+                            : 'Cancelar el desbloqueo'
+                          : 'Ingresá la contraseña para usarla'
+                        const unlockDisabled =
+                          isWalletActivationPending ||
+                          (isUnlocking && walletBeingUnlocked?.address !== wallet.address) ||
+                          (isCurrent && isUnlocking)
+                        return (
+                          <div key={wallet.address} className={storedWalletContainerClass}>
+                            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                              <div className="space-y-1">
+                                <p className={walletItemLabelClass}>{shortenAddress(wallet.address)}</p>
+                                <p className={walletItemSubClass}>{wallet.type === 'mnemonic' ? 'Mnemonic' : 'Clave privada'}</p>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => handleSelectStoredWallet(wallet)}
+                                  className={walletActionButtonClass}
+                                  disabled={unlockDisabled}
+                                  title={unlockTitle}
+                                >
+                                  {unlockLabel}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleForgetStoredWallet(wallet.address)}
+                                  className={walletActionButtonClass}
+                                  disabled={isUnlocking || isWalletActivationPending}
+                                  title="Quitar del almacenamiento local"
+                                >
+                                  Olvidar
+                                </button>
+                              </div>
+                            </div>
+                            {isCurrent ? (
+                              <StoredWalletUnlock
+                                theme={theme}
+                                onUnlock={handleUnlockWallet}
+                                onForget={() => handleForgetStoredWallet(wallet.address)}
+                                loading={isUnlocking}
+                                error={walletBeingUnlocked?.address === wallet.address ? unlockError : null}
+                              />
+                            ) : null}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </section>
+                ) : null}
+              </div>
             </div>
           ) : null}
 

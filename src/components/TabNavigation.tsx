@@ -24,12 +24,23 @@ export function TabNavigation({ items, current, onSelect, theme = 'dark' }: TabN
   const containerClass = 'mx-auto flex w-full max-w-none items-stretch gap-2 px-3 sm:px-4 sm:gap-3 md:px-8'
   const baseButtonClass =
     'group flex flex-1 flex-col items-center justify-center rounded-2xl border px-2 py-2 text-[0.7rem] font-semibold uppercase tracking-wide transition sm:px-3 sm:text-xs md:py-3 md:text-sm'
+  const descriptionClass = isLight
+    ? 'mt-1 text-[0.6rem] font-medium uppercase tracking-wide text-slate-400 sm:text-[0.65rem]'
+    : 'mt-1 text-[0.6rem] font-medium uppercase tracking-wide text-slate-400 sm:text-[0.65rem]'
 
   return (
     <nav className={navClass} role="tablist" aria-label="Navegación principal">
       <div className={containerClass}>
         {items.map((item) => {
           const isActive = item.id === current
+          const descriptionTone = cx(
+            descriptionClass,
+            isActive
+              ? isLight
+                ? 'text-sky-600'
+                : 'text-sky-300'
+              : undefined,
+          )
           return (
             <button
               key={item.id}
@@ -51,6 +62,7 @@ export function TabNavigation({ items, current, onSelect, theme = 'dark' }: TabN
               )}
             >
               <span>{item.label}</span>
+              {item.description ? <span className={descriptionTone}>{item.description}</span> : null}
               <span
                 className={cx(
                   'mt-2 h-1.5 w-8 rounded-full transition',
