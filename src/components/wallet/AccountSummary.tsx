@@ -8,9 +8,18 @@ interface AccountSummaryProps {
   balance: string
   onCopy: () => void
   theme?: 'light' | 'dark'
+  onRefreshBalance?: () => Promise<void> | void
+  refreshingBalance?: boolean
 }
 
-export function AccountSummary({ wallet, balance, onCopy, theme = 'dark' }: AccountSummaryProps) {
+export function AccountSummary({
+  wallet,
+  balance,
+  onCopy,
+  theme = 'dark',
+  onRefreshBalance,
+  refreshingBalance = false,
+}: AccountSummaryProps) {
   const isLight = theme === 'light'
   const infoCardClass = isLight
     ? 'space-y-4 rounded-2xl border border-slate-200 bg-white/90 p-6 shadow-md shadow-slate-200/50'
@@ -31,6 +40,9 @@ export function AccountSummary({ wallet, balance, onCopy, theme = 'dark' }: Acco
     : 'flex flex-col items-center justify-between gap-4 rounded-2xl border border-white/10 bg-slate-900/60 p-6 text-center shadow-lg shadow-indigo-500/20'
   const sideHeadingClass = isLight ? 'text-sm font-semibold uppercase tracking-wide text-slate-600' : 'text-sm font-semibold uppercase tracking-wide text-slate-200'
   const guidanceClass = isLight ? 'text-xs text-slate-500' : 'text-xs text-slate-400'
+  const refreshButtonClass = isLight
+    ? 'inline-flex items-center justify-center rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-slate-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400'
+    : 'inline-flex items-center justify-center rounded-xl border border-white/20 bg-transparent px-4 py-2 text-sm font-semibold text-slate-200 transition hover:border-white/40 hover:text-white disabled:cursor-not-allowed disabled:border-white/10 disabled:text-slate-500'
 
   return (
     <div className="grid gap-6 lg:grid-cols-[1fr_220px]">
@@ -46,13 +58,25 @@ export function AccountSummary({ wallet, balance, onCopy, theme = 'dark' }: Acco
             {balance} {DISPLAY_DENOM}
           </p>
         </div>
-        <button
-          type="button"
-          onClick={onCopy}
-          className={copyButtonClass}
-        >
-          Copiar dirección
-        </button>
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            onClick={onCopy}
+            className={copyButtonClass}
+          >
+            Copiar dirección
+          </button>
+          {onRefreshBalance ? (
+            <button
+              type="button"
+              onClick={onRefreshBalance}
+              className={refreshButtonClass}
+              disabled={refreshingBalance}
+            >
+              {refreshingBalance ? 'Actualizando…' : 'Actualizar balance'}
+            </button>
+          ) : null}
+        </div>
       </div>
 
       <div className={sideCardClass}>

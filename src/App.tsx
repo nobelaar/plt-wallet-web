@@ -12,15 +12,15 @@ import ConnectView from './components/ConnectView'
 import { TabNavigation } from './components/TabNavigation'
 import {
   DEFAULT_CHAIN,
-  clearPersistedWallet,
   createSignerFromMnemonic,
   createSignerFromPrivateKey,
   decryptSecrets,
   encryptSecrets,
   formatAmount,
-  getStoredWallet,
+  getStoredWallets,
   instantiateSigningClient,
   persistWallet,
+  removePersistedWallet,
   shortenAddress,
 } from './lib/wallet'
 import type { ActiveWallet, EncryptedWalletShape } from './lib/wallet'
@@ -68,13 +68,18 @@ function App() {
   const [height, setHeight] = useState(0)
   const [signingClient, setSigningClient] = useState<SigningStargateClient | null>(null)
   const [activeWallet, setActiveWallet] = useState<ActiveWallet | null>(null)
-  const [storedWallet, setStoredWallet] = useState<EncryptedWalletShape | null>(null)
+  const [wallets, setWallets] = useState<ActiveWallet[]>([])
+  const [storedWallets, setStoredWallets] = useState<EncryptedWalletShape[]>([])
+  const [walletBeingUnlocked, setWalletBeingUnlocked] = useState<EncryptedWalletShape | null>(null)
   const [statusMessage, setStatusMessage] = useState<string | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [unlockError, setUnlockError] = useState<string | null>(null)
   const [isUnlocking, setIsUnlocking] = useState(false)
   const [isImporting, setIsImporting] = useState(false)
+  const [isWalletActivationPending, setIsWalletActivationPending] = useState(false)
   const [balance, setBalance] = useState('0')
+  const [walletBalances, setWalletBalances] = useState<Record<string, string>>({})
+  const [isRefreshingBalance, setIsRefreshingBalance] = useState(false)
   const [theme, setTheme] = useState<ThemeMode>(() => resolveInitialTheme())
   const [showTips, setShowTips] = useState<boolean>(() => resolveInitialTipsVisibility())
 
@@ -84,9 +89,9 @@ function App() {
   const displayBalance = useMemo(() => formatAmount(balance), [balance])
 
   useEffect(() => {
-    const payload = getStoredWallet()
-    if (payload) {
-      setStoredWallet(payload)
+    const stored = getStoredWallets()
+    if (stored.length) {
+      setStoredWallets(stored)
     }
   }, [])
 
@@ -119,13 +124,56 @@ function App() {
 
   const refreshBalance = useCallback(async () => {
     if (!signingClient || !activeWallet) return
+    setIsRefreshingBalance(true)
     try {
       const accountBalance = await signingClient.getBalance(activeWallet.address, DEFAULT_CHAIN.baseDenom)
-      setBalance(accountBalance?.amount ?? '0')
+      const amount = accountBalance?.amount ?? '0'
+      setBalance(amount)
+      setWalletBalances((prev) => ({ ...prev, [activeWallet.address]: amount }))
     } catch (error) {
       console.error('No se pudo consultar el balance', error)
+    } finally {
+      setIsRefreshingBalance(false)
     }
   }, [activeWallet, signingClient])
+
+  const activateWallet = useCallback(
+    async (wallet: ActiveWallet) => {
+      setIsWalletActivationPending(true)
+      try {
+        await disconnectSigningClient()
+        const trimmedRpc = rpcUrl.trim() || DEFAULT_CHAIN.rpcUrl
+        const trimmedChainId = expectedChainId.trim() || DEFAULT_CHAIN.chainId
+        const newSigningClient = await instantiateSigningClient(trimmedRpc, wallet.signer, trimmedChainId)
+        try {
+          const accountBalance = await newSigningClient.getBalance(wallet.address, DEFAULT_CHAIN.baseDenom)
+          const amount = accountBalance?.amount ?? '0'
+
+          setSigningClient(newSigningClient)
+          setActiveWallet(wallet)
+          setBalance(amount)
+          setWalletBalances((prev) => ({ ...prev, [wallet.address]: amount }))
+          setWallets((prev) => {
+            const existingIndex = prev.findIndex((item) => item.address === wallet.address)
+            if (existingIndex >= 0) {
+              const next = [...prev]
+              next.splice(existingIndex, 1)
+              return [wallet, ...next]
+            }
+            return [wallet, ...prev]
+          })
+          setErrorMessage(null)
+          return amount
+        } catch (error) {
+          await newSigningClient.disconnect()
+          throw error
+        }
+      } finally {
+        setIsWalletActivationPending(false)
+      }
+    },
+    [disconnectSigningClient, expectedChainId, rpcUrl],
+  )
 
   useEffect(() => {
     refreshBalance()
@@ -173,7 +221,11 @@ function App() {
     setChainId(null)
     setHeight(0)
     setActiveWallet(null)
+    setWallets([])
     setBalance('0')
+    setWalletBalances({})
+    setWalletBeingUnlocked(null)
+    setUnlockError(null)
     setStatusMessage('Desconectado del nodo RPC.')
     setActiveTab('settings')
   }, [disconnectSigningClient, queryClient])
@@ -195,34 +247,27 @@ function App() {
             ? await createSignerFromMnemonic(mnemonic ?? '')
             : await createSignerFromPrivateKey(privateKey ?? '')
 
-        await disconnectSigningClient()
-
-        const trimmedRpc = rpcUrl.trim() || DEFAULT_CHAIN.rpcUrl
-        const trimmedChainId = expectedChainId.trim() || DEFAULT_CHAIN.chainId
-        const newSigningClient = await instantiateSigningClient(trimmedRpc, nextWallet.signer, trimmedChainId)
-
-        const accountBalance = await newSigningClient.getBalance(nextWallet.address, DEFAULT_CHAIN.baseDenom)
-
-        setSigningClient(newSigningClient)
-        setActiveWallet({ address: nextWallet.address, signer: nextWallet.signer, type: nextWallet.type })
-        setBalance(accountBalance?.amount ?? '0')
+        await activateWallet({ address: nextWallet.address, signer: nextWallet.signer, type: nextWallet.type })
 
         let status = `Wallet importada correctamente. Dirección ${shortenAddress(nextWallet.address)}.`
 
         if (persist) {
           if (!password) {
             status = `${status} Se omitió el guardado porque falta la contraseña para cifrar los datos.`
-            clearPersistedWallet()
-            setStoredWallet(null)
           } else {
             const encrypted = await encryptSecrets(nextWallet.secrets, password, nextWallet.type, nextWallet.address)
             persistWallet(encrypted)
-            setStoredWallet(encrypted)
+            setStoredWallets((prev) => {
+              const index = prev.findIndex((item) => item.address === encrypted.address)
+              if (index >= 0) {
+                const next = [...prev]
+                next[index] = encrypted
+                return next
+              }
+              return [...prev, encrypted]
+            })
             status = `${status} Se guardó la wallet cifrada en este navegador.`
           }
-        } else {
-          clearPersistedWallet()
-          setStoredWallet(null)
         }
 
         setStatusMessage(status)
@@ -235,23 +280,27 @@ function App() {
         setIsImporting(false)
       }
     },
-    [disconnectSigningClient, expectedChainId, isConnected, rpcUrl],
+    [activateWallet, encryptSecrets, isConnected, persistWallet],
   )
 
   const handleUnlockWallet = useCallback(
     async (password: string) => {
-      if (!storedWallet) return
+      if (!walletBeingUnlocked) return
+      if (!isConnected) {
+        setUnlockError('Conectate a una red antes de desbloquear una wallet guardada.')
+        return
+      }
       setUnlockError(null)
       setIsUnlocking(true)
 
       try {
-        const secrets = await decryptSecrets(storedWallet, password)
+        const secrets = await decryptSecrets(walletBeingUnlocked, password)
         let nextWallet: Awaited<ReturnType<typeof createSignerFromMnemonic>> | Awaited<ReturnType<typeof createSignerFromPrivateKey>> | null =
           null
 
-        if (storedWallet.type === 'mnemonic' && secrets.mnemonic) {
+        if (walletBeingUnlocked.type === 'mnemonic' && secrets.mnemonic) {
           nextWallet = await createSignerFromMnemonic(secrets.mnemonic)
-        } else if (storedWallet.type === 'privateKey' && secrets.privateKeyHex) {
+        } else if (walletBeingUnlocked.type === 'privateKey' && secrets.privateKeyHex) {
           nextWallet = await createSignerFromPrivateKey(secrets.privateKeyHex)
         }
 
@@ -259,19 +308,11 @@ function App() {
           throw new Error('La información almacenada es insuficiente para reconstruir la wallet.')
         }
 
-        await disconnectSigningClient()
-
-        const trimmedRpc = rpcUrl.trim() || DEFAULT_CHAIN.rpcUrl
-        const trimmedChainId = expectedChainId.trim() || DEFAULT_CHAIN.chainId
-        const newSigningClient = await instantiateSigningClient(trimmedRpc, nextWallet.signer, trimmedChainId)
-        const accountBalance = await newSigningClient.getBalance(nextWallet.address, DEFAULT_CHAIN.baseDenom)
-
-        setSigningClient(newSigningClient)
-        setActiveWallet({ address: nextWallet.address, signer: nextWallet.signer, type: storedWallet.type })
-        setBalance(accountBalance?.amount ?? '0')
+        await activateWallet({ address: nextWallet.address, signer: nextWallet.signer, type: walletBeingUnlocked.type })
         setStatusMessage(`Wallet restaurada correctamente. Dirección ${shortenAddress(nextWallet.address)}.`)
         setErrorMessage(null)
         setUnlockError(null)
+        setWalletBeingUnlocked(null)
         setActiveTab('wallet')
       } catch (error) {
         console.error('Error al desbloquear la wallet', error)
@@ -284,14 +325,51 @@ function App() {
         setIsUnlocking(false)
       }
     },
-    [disconnectSigningClient, expectedChainId, rpcUrl, storedWallet],
+    [activateWallet, decryptSecrets, isConnected, walletBeingUnlocked],
   )
 
-  const handleForgetWallet = useCallback(() => {
-    clearPersistedWallet()
-    setStoredWallet(null)
+  const handleForgetStoredWallet = useCallback(
+    (address: string) => {
+      removePersistedWallet(address)
+      setStoredWallets((prev) => prev.filter((item) => item.address !== address))
+      if (walletBeingUnlocked?.address === address) {
+        setWalletBeingUnlocked(null)
+        setUnlockError(null)
+      }
+      setStatusMessage(`Wallet ${shortenAddress(address)} eliminada del almacenamiento local.`)
+    },
+    [walletBeingUnlocked],
+  )
+
+  const handleSelectStoredWallet = useCallback((wallet: EncryptedWalletShape) => {
     setUnlockError(null)
+    setWalletBeingUnlocked((current) => (current?.address === wallet.address ? null : wallet))
   }, [])
+
+  const handleSelectWallet = useCallback(
+    async (address: string) => {
+      if (!isConnected) {
+        setErrorMessage('Conectate a una red antes de alternar entre wallets.')
+        return
+      }
+      if (activeWallet?.address === address) return
+      const wallet = wallets.find((item) => item.address === address)
+      if (!wallet) return
+
+      setErrorMessage(null)
+      setStatusMessage(null)
+
+      try {
+        await activateWallet(wallet)
+        setStatusMessage(`Wallet ${shortenAddress(wallet.address)} activada.`)
+      } catch (error) {
+        console.error('No se pudo activar la wallet seleccionada', error)
+        const message = error instanceof Error ? error.message : 'No se pudo activar la wallet seleccionada.'
+        setErrorMessage(message)
+      }
+    },
+    [activateWallet, activeWallet?.address, isConnected, wallets],
+  )
 
   const handleCopyAddress = useCallback(() => {
     if (!activeWallet) return
@@ -361,6 +439,22 @@ function App() {
     ? 'inline-flex items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-slate-300 hover:bg-slate-100'
     : 'inline-flex items-center justify-center rounded-2xl border border-white/10 bg-slate-900/80 px-4 py-3 text-sm font-semibold text-slate-100 shadow-lg transition hover:border-white/30 hover:bg-slate-900'
   const settingsWrapperClass = 'space-y-5 md:grid md:grid-cols-2 md:gap-6 md:space-y-0'
+  const walletListClass = 'mt-4 space-y-3'
+  const walletItemClass = isLight
+    ? 'flex items-center justify-between rounded-2xl border border-slate-200 bg-white/80 px-4 py-3 shadow-sm shadow-slate-200/60'
+    : 'flex items-center justify-between rounded-2xl border border-white/10 bg-slate-900/70 px-4 py-3 shadow-lg shadow-indigo-500/20'
+  const walletItemLabelClass = isLight ? 'text-sm font-semibold text-slate-800' : 'text-sm font-semibold text-slate-100'
+  const walletItemSubClass = isLight ? 'text-xs text-slate-500' : 'text-xs text-slate-400'
+  const walletActionButtonClass = isLight
+    ? 'inline-flex items-center justify-center rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-slate-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400'
+    : 'inline-flex items-center justify-center rounded-xl border border-white/20 bg-transparent px-3 py-1.5 text-xs font-semibold text-slate-200 transition hover:border-white/40 hover:text-white disabled:cursor-not-allowed disabled:border-white/10 disabled:text-slate-500'
+  const walletActiveBadgeClass = isLight
+    ? 'rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-700'
+    : 'rounded-full bg-emerald-500/20 px-2 py-0.5 text-xs font-semibold text-emerald-200'
+  const storedWalletContainerClass = isLight
+    ? 'space-y-3 rounded-2xl border border-slate-200 bg-white/80 p-4 shadow-sm shadow-slate-200/60'
+    : 'space-y-3 rounded-2xl border border-white/10 bg-slate-900/70 p-4 shadow-lg shadow-indigo-500/20'
+  const walletTagClass = isLight ? 'text-[11px] uppercase tracking-wide text-slate-500' : 'text-[11px] uppercase tracking-wide text-slate-400'
 
   return (
     <div className={pageClass}>
@@ -411,35 +505,125 @@ function App() {
 
           {activeTab === 'wallet' ? (
             <div className="space-y-5">
-              {!activeWallet && storedWallet ? (
-                <section className={secondaryCardClass}>
-                  <h2 className={sectionTitleClass}>Desbloquear wallet guardada</h2>
-                  <p className={mutedTextClass}>Ingresá la contraseña para restaurar la wallet cifrada en este navegador.</p>
-                  <div className="mt-5">
-                    <StoredWalletUnlock
-                      theme={theme}
-                      onUnlock={handleUnlockWallet}
-                      onForget={handleForgetWallet}
-                      loading={isUnlocking}
-                      error={unlockError}
-                    />
-                  </div>
-                </section>
-              ) : null}
-
-              {!activeWallet ? (
-                <section className={secondaryCardClass}>
-                  <h2 className={sectionTitleClass}>Importar wallet</h2>
-                  <p className={mutedTextClass}>Elegí el tipo de clave, ingresá tus credenciales y definí si querés guardarla cifrada.</p>
-                  <div className="mt-5">
-                    <WalletImportForm theme={theme} onSubmit={handleImportWallet} disabled={!isConnected} loading={isImporting} />
-                  </div>
-                </section>
-              ) : null}
-
               {activeWallet ? (
-                <AccountSummary theme={theme} wallet={activeWallet} balance={displayBalance} onCopy={handleCopyAddress} />
+                <AccountSummary
+                  theme={theme}
+                  wallet={activeWallet}
+                  balance={displayBalance}
+                  onCopy={handleCopyAddress}
+                  onRefreshBalance={refreshBalance}
+                  refreshingBalance={isRefreshingBalance}
+                />
+              ) : (
+                <section className={secondaryCardClass}>
+                  <h2 className={sectionTitleClass}>Sin wallet activa</h2>
+                  <p className={mutedTextClass}>Importá una wallet o desbloqueá una guardada para ver el resumen de la cuenta.</p>
+                </section>
+              )}
+
+              <section className={secondaryCardClass}>
+                <h2 className={sectionTitleClass}>Tus wallets</h2>
+                <p className={mutedTextClass}>Podés importar varias wallets y alternar entre ellas cuando quieras.</p>
+                {wallets.length ? (
+                  <ul className={walletListClass}>
+                    {wallets.map((walletItem) => {
+                      const isActiveWallet = activeWallet?.address === walletItem.address
+                      const knownBalance = walletBalances[walletItem.address]
+                      const balanceLabel =
+                        knownBalance !== undefined ? `${formatAmount(knownBalance)} ${DISPLAY_DENOM}` : 'Balance pendiente'
+                      return (
+                        <li key={walletItem.address} className={walletItemClass}>
+                          <div className="space-y-1">
+                            <p className={walletItemLabelClass}>{shortenAddress(walletItem.address)}</p>
+                            <p className={walletItemSubClass}>
+                              <span className={walletTagClass}>{walletItem.type === 'mnemonic' ? 'Mnemonic' : 'Clave privada'}</span>
+                              <span> · {balanceLabel}</span>
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {isActiveWallet ? (
+                              <span className={walletActiveBadgeClass}>Activa</span>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => handleSelectWallet(walletItem.address)}
+                                className={walletActionButtonClass}
+                                disabled={isWalletActivationPending || !isConnected}
+                              >
+                                Usar
+                              </button>
+                            )}
+                          </div>
+                        </li>
+                      )
+                    })}
+                  </ul>
+                ) : (
+                  <p className={`${mutedTextClass} mt-4`}>Cuando importes o desbloquees wallets, aparecerán acá.</p>
+                )}
+              </section>
+
+              {storedWallets.length ? (
+                <section className={secondaryCardClass}>
+                  <h2 className={sectionTitleClass}>Wallets guardadas en este navegador</h2>
+                  <p className={mutedTextClass}>Desbloquealas con tu contraseña para usarlas en esta sesión.</p>
+                  <div className="mt-4 space-y-4">
+                    {storedWallets.map((wallet) => {
+                      const isCurrent = walletBeingUnlocked?.address === wallet.address
+                      return (
+                        <div key={wallet.address} className={storedWalletContainerClass}>
+                          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                            <div className="space-y-1">
+                              <p className={walletItemLabelClass}>{shortenAddress(wallet.address)}</p>
+                              <p className={walletItemSubClass}>{wallet.type === 'mnemonic' ? 'Mnemonic' : 'Clave privada'}</p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => handleSelectStoredWallet(wallet)}
+                                className={walletActionButtonClass}
+                                disabled={(isUnlocking || isWalletActivationPending) && !isCurrent}
+                              >
+                                {isCurrent ? 'Cancelar' : 'Desbloquear'}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleForgetStoredWallet(wallet.address)}
+                                className={walletActionButtonClass}
+                                disabled={isUnlocking || isWalletActivationPending}
+                              >
+                                Olvidar
+                              </button>
+                            </div>
+                          </div>
+                          {isCurrent ? (
+                            <StoredWalletUnlock
+                              theme={theme}
+                              onUnlock={handleUnlockWallet}
+                              onForget={() => handleForgetStoredWallet(wallet.address)}
+                              loading={isUnlocking}
+                              error={walletBeingUnlocked?.address === wallet.address ? unlockError : null}
+                            />
+                          ) : null}
+                        </div>
+                      )
+                    })}
+                  </div>
+                </section>
               ) : null}
+
+              <section className={secondaryCardClass}>
+                <h2 className={sectionTitleClass}>Importar wallet</h2>
+                <p className={mutedTextClass}>Elegí el tipo de clave, ingresá tus credenciales y definí si querés guardarla cifrada.</p>
+                <div className="mt-5">
+                  <WalletImportForm
+                    theme={theme}
+                    onSubmit={handleImportWallet}
+                    disabled={!isConnected || isWalletActivationPending}
+                    loading={isImporting}
+                  />
+                </div>
+              </section>
             </div>
           ) : null}
 

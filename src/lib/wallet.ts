@@ -109,26 +109,48 @@ export async function decryptSecrets(payload: EncryptedWalletShape, password: st
   return JSON.parse(json) as StoredSecrets
 }
 
-export function getStoredWallet(): EncryptedWalletShape | null {
-  if (typeof window === 'undefined') return null
-  const stored = window.localStorage.getItem(STORAGE_KEY)
-  if (!stored) return null
-  try {
-    return JSON.parse(stored) as EncryptedWalletShape
-  } catch (error) {
-    console.error('No se pudo parsear la wallet almacenada de manera segura.', error)
-    return null
+function normalizeStoredPayload(value: unknown): EncryptedWalletShape[] {
+  if (!value) return []
+  if (Array.isArray(value)) {
+    return value.filter((item): item is EncryptedWalletShape => Boolean(item && typeof item === 'object' && 'ciphertext' in item))
   }
+  if (typeof value === 'object' && value !== null && 'ciphertext' in value) {
+    return [value as EncryptedWalletShape]
+  }
+  return []
+}
+
+export function getStoredWallets(): EncryptedWalletShape[] {
+  if (typeof window === 'undefined') return []
+  const stored = window.localStorage.getItem(STORAGE_KEY)
+  if (!stored) return []
+  try {
+    const parsed = JSON.parse(stored)
+    return normalizeStoredPayload(parsed)
+  } catch (error) {
+    console.error('No se pudo parsear la(s) wallet(s) almacenada(s) de manera segura.', error)
+    return []
+  }
+}
+
+export function getStoredWallet(): EncryptedWalletShape | null {
+  const wallets = getStoredWallets()
+  return wallets[0] ?? null
 }
 
 export function persistWallet(payload: EncryptedWalletShape) {
   if (typeof window === 'undefined') return
-  window.localStorage.setItem(
-    STORAGE_KEY,
-    JSON.stringify({
-      ...payload,
-    }),
-  )
+  const current = getStoredWallets()
+  const index = current.findIndex((item) => item.address === payload.address)
+  const next = index >= 0 ? [...current.slice(0, index), payload, ...current.slice(index + 1)] : [...current, payload]
+  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next))
+}
+
+export function removePersistedWallet(address: string) {
+  if (typeof window === 'undefined') return
+  const current = getStoredWallets()
+  const next = current.filter((item) => item.address !== address)
+  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next))
 }
 
 export function clearPersistedWallet() {
