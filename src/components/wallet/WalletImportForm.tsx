@@ -8,6 +8,7 @@ export interface WalletImportPayload {
   privateKey?: string
   password?: string
   persist: boolean
+  name?: string
 }
 
 interface WalletImportFormProps {
@@ -23,6 +24,7 @@ export function WalletImportForm({ onSubmit, disabled = false, loading = false, 
   const [privateKey, setPrivateKey] = useState('')
   const [password, setPassword] = useState('')
   const [persist, setPersist] = useState(false)
+  const [name, setName] = useState('')
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -33,6 +35,7 @@ export function WalletImportForm({ onSubmit, disabled = false, loading = false, 
       privateKey: walletType === 'privateKey' ? privateKey : undefined,
       password: persist ? password : undefined,
       persist,
+      name: name.trim() ? name.trim() : undefined,
     })
   }
 
@@ -60,6 +63,21 @@ export function WalletImportForm({ onSubmit, disabled = false, loading = false, 
 
   return (
     <form onSubmit={handleSubmit} className="space-y-5">
+      <div className="space-y-2">
+        <label htmlFor="wallet-name" className={labelClass}>
+          Nombre (opcional)
+        </label>
+        <input
+          id="wallet-name"
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+          className={inputClass}
+          placeholder="Ej. Billetera principal"
+          disabled={disabled || loading}
+        />
+        <p className={hintClass}>El nombre te ayuda a identificar la wallet en la lista.</p>
+      </div>
+
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-2">
           <label htmlFor="wallet-type" className={labelClass}>

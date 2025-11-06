@@ -11,13 +11,14 @@ import {
   decryptSecrets,
   encryptSecrets,
   formatAmount,
+  generateNewMnemonicWallet,
   getStoredWallets,
   instantiateSigningClient,
   persistWallet,
   removePersistedWallet,
   shortenAddress,
 } from './lib/wallet'
-import type { ActiveWallet, EncryptedWalletShape } from './lib/wallet'
+import type { ActiveWallet, EncryptedWalletShape, GeneratedWallet } from './lib/wallet'
 import { CONFIRMATION_GUIDANCE, DEFAULT_GAS_PRICE, DISPLAY_DENOM } from './config'
 import './App.css'
 
@@ -60,6 +61,12 @@ function App() {
   const [showSendModal, setShowSendModal] = useState(false)
   const [showReceiveModal, setShowReceiveModal] = useState(false)
   const [theme, setTheme] = useState<ThemeMode>(() => resolveInitialTheme())
+  const [generatedWallet, setGeneratedWallet] = useState<GeneratedWallet | null>(null)
+  const [isGeneratingWallet, setIsGeneratingWallet] = useState(false)
+  const [isSavingGeneratedWallet, setIsSavingGeneratedWallet] = useState(false)
+  const [createWalletName, setCreateWalletName] = useState('')
+  const [createWalletPassword, setCreateWalletPassword] = useState('')
+  const [createWalletLength, setCreateWalletLength] = useState<12 | 24>(24)
 
   const gasPrice = useMemo(() => GasPrice.fromString(DEFAULT_GAS_PRICE), [])
 
@@ -211,11 +218,117 @@ function App() {
     setIsWalletPanelOpen(false)
     setShowSendModal(false)
     setShowReceiveModal(false)
+    setGeneratedWallet(null)
+    setCreateWalletPassword('')
+    setCreateWalletName('')
     setStatusMessage('Desconectado del nodo RPC.')
   }, [disconnectSigningClient, queryClient])
 
+  const handleGenerateWallet = useCallback(async () => {
+    setErrorMessage(null)
+    setStatusMessage(null)
+    setIsGeneratingWallet(true)
+    try {
+      const trimmedName = createWalletName.trim() || undefined
+      const wallet = await generateNewMnemonicWallet(trimmedName, createWalletLength)
+      setGeneratedWallet(wallet)
+      setCreateWalletPassword('')
+      setStatusMessage('Generamos una nueva mnemonic. Guardala en un lugar seguro antes de activarla.')
+    } catch (error) {
+      console.error('Error al generar la wallet', error)
+      const message = error instanceof Error ? error.message : 'No se pudo generar la wallet. Intentá nuevamente.'
+      setErrorMessage(message)
+    } finally {
+      setIsGeneratingWallet(false)
+    }
+  }, [createWalletLength, createWalletName])
+
+  const handleUseGeneratedWallet = useCallback(async () => {
+    if (!generatedWallet) return
+    if (!isConnected) {
+      setErrorMessage('Conectate a una red antes de activar una wallet.')
+      return
+    }
+    const trimmedName = createWalletName.trim() || generatedWallet.name
+    const walletForSession: ActiveWallet = {
+      address: generatedWallet.address,
+      signer: generatedWallet.signer,
+      type: generatedWallet.type,
+      name: trimmedName,
+    }
+    try {
+      await activateWallet(walletForSession)
+      setGeneratedWallet((current) => (current ? { ...current, name: trimmedName } : current))
+      setStatusMessage(`Wallet${trimmedName ? ` “${trimmedName}”` : ''} generada y activada.`)
+      setIsWalletPanelOpen(false)
+    } catch (error) {
+      console.error('Error al activar la wallet generada', error)
+      const message = error instanceof Error ? error.message : 'No se pudo activar la wallet generada.'
+      setErrorMessage(message)
+    }
+  }, [activateWallet, createWalletName, generatedWallet, isConnected])
+
+  const handlePersistGeneratedWallet = useCallback(async () => {
+    if (!generatedWallet) return
+    if (!createWalletPassword.trim()) {
+      setErrorMessage('Definí una contraseña para guardar la wallet generada.')
+      return
+    }
+    const trimmedName = createWalletName.trim() || generatedWallet.name
+    setIsSavingGeneratedWallet(true)
+    try {
+      const encrypted = await encryptSecrets(
+        generatedWallet.secrets,
+        createWalletPassword,
+        generatedWallet.type,
+        generatedWallet.address,
+        trimmedName,
+      )
+      persistWallet(encrypted)
+      setStoredWallets((prev) => {
+        const index = prev.findIndex((item) => item.address === encrypted.address)
+        if (index >= 0) {
+          const next = [...prev]
+          next[index] = encrypted
+          return next
+        }
+        return [...prev, encrypted]
+      })
+      setGeneratedWallet((current) => (current ? { ...current, name: trimmedName } : current))
+      setStatusMessage(`Wallet${trimmedName ? ` “${trimmedName}”` : ''} guardada en este navegador.`)
+      setCreateWalletPassword('')
+    } catch (error) {
+      console.error('Error al guardar la wallet generada', error)
+      const message = error instanceof Error ? error.message : 'No se pudo guardar la wallet generada.'
+      setErrorMessage(message)
+    } finally {
+      setIsSavingGeneratedWallet(false)
+    }
+  }, [createWalletName, createWalletPassword, encryptSecrets, generatedWallet, persistWallet])
+
+  const handleCopyGeneratedMnemonic = useCallback(() => {
+    if (!generatedWallet) return
+    navigator.clipboard
+      .writeText(generatedWallet.mnemonic)
+      .then(() => setStatusMessage('Mnemonic copiada al portapapeles.'))
+      .catch(() => setErrorMessage('No se pudo copiar la mnemonic. Copiala manualmente.'))
+  }, [generatedWallet])
+
+  const handleCopyGeneratedAddress = useCallback(() => {
+    if (!generatedWallet) return
+    navigator.clipboard
+      .writeText(generatedWallet.address)
+      .then(() => setStatusMessage('Dirección generada copiada al portapapeles.'))
+      .catch(() => setErrorMessage('No se pudo copiar la dirección generada. Copiala manualmente.'))
+  }, [generatedWallet])
+
+  const handleDiscardGeneratedWallet = useCallback(() => {
+    setGeneratedWallet(null)
+    setCreateWalletPassword('')
+  }, [])
+
   const handleImportWallet = useCallback(
-    async ({ type, mnemonic, privateKey, password, persist }: WalletImportPayload) => {
+    async ({ type, mnemonic, privateKey, password, persist, name }: WalletImportPayload) => {
       if (!isConnected) {
         setErrorMessage('Conectate a una red antes de importar una wallet.')
         return
@@ -231,15 +344,23 @@ function App() {
             ? await createSignerFromMnemonic(mnemonic ?? '')
             : await createSignerFromPrivateKey(privateKey ?? '')
 
-        await activateWallet({ address: nextWallet.address, signer: nextWallet.signer, type: nextWallet.type })
+        const trimmedName = name?.trim() ? name.trim() : undefined
+        const walletForSession: ActiveWallet = {
+          address: nextWallet.address,
+          signer: nextWallet.signer,
+          type: nextWallet.type,
+          name: trimmedName,
+        }
 
-        let status = `Wallet importada correctamente. Dirección ${shortenAddress(nextWallet.address)}.`
+        await activateWallet(walletForSession)
+
+        let status = `Wallet${trimmedName ? ` “${trimmedName}”` : ''} importada correctamente. Dirección ${shortenAddress(nextWallet.address)}.`
 
         if (persist) {
           if (!password) {
             status = `${status} Se omitió el guardado porque falta la contraseña para cifrar los datos.`
           } else {
-            const encrypted = await encryptSecrets(nextWallet.secrets, password, nextWallet.type, nextWallet.address)
+            const encrypted = await encryptSecrets(nextWallet.secrets, password, nextWallet.type, nextWallet.address, trimmedName)
             persistWallet(encrypted)
             setStoredWallets((prev) => {
               const index = prev.findIndex((item) => item.address === encrypted.address)
@@ -292,8 +413,15 @@ function App() {
           throw new Error('La información almacenada es insuficiente para reconstruir la wallet.')
         }
 
-        await activateWallet({ address: nextWallet.address, signer: nextWallet.signer, type: walletBeingUnlocked.type })
-        setStatusMessage(`Wallet restaurada correctamente. Dirección ${shortenAddress(nextWallet.address)}.`)
+        const walletForSession: ActiveWallet = {
+          address: nextWallet.address,
+          signer: nextWallet.signer,
+          type: walletBeingUnlocked.type,
+          name: walletBeingUnlocked.name,
+        }
+        await activateWallet(walletForSession)
+        const label = walletBeingUnlocked.name ? ` “${walletBeingUnlocked.name}”` : ''
+        setStatusMessage(`Wallet${label} restaurada correctamente. Dirección ${shortenAddress(nextWallet.address)}.`)
         setErrorMessage(null)
         setUnlockError(null)
         setWalletBeingUnlocked(null)
@@ -314,15 +442,17 @@ function App() {
 
   const handleForgetStoredWallet = useCallback(
     (address: string) => {
+      const storedEntry = storedWallets.find((item) => item.address === address)
+      const label = storedEntry?.name ? `“${storedEntry.name}” (${shortenAddress(address)})` : shortenAddress(address)
       removePersistedWallet(address)
       setStoredWallets((prev) => prev.filter((item) => item.address !== address))
       if (walletBeingUnlocked?.address === address) {
         setWalletBeingUnlocked(null)
         setUnlockError(null)
       }
-      setStatusMessage(`Wallet ${shortenAddress(address)} eliminada del almacenamiento local.`)
+      setStatusMessage(`Wallet ${label} eliminada del almacenamiento local.`)
     },
-    [walletBeingUnlocked],
+    [storedWallets, walletBeingUnlocked],
   )
 
   const handleSelectStoredWallet = useCallback((wallet: EncryptedWalletShape) => {
@@ -345,7 +475,8 @@ function App() {
 
       try {
         await activateWallet(wallet)
-        setStatusMessage(`Wallet ${shortenAddress(wallet.address)} activada.`)
+        const label = wallet.name ? `“${wallet.name}” (${shortenAddress(wallet.address)})` : shortenAddress(wallet.address)
+        setStatusMessage(`Wallet ${label} activada.`)
         setIsWalletPanelOpen(false)
       } catch (error) {
         console.error('No se pudo activar la wallet seleccionada', error)
@@ -363,6 +494,51 @@ function App() {
       .then(() => setStatusMessage('Dirección copiada al portapapeles.'))
       .catch(() => setStatusMessage('No se pudo copiar la dirección. Copiala manualmente.'))
   }, [activeWallet])
+
+  const handleRenameSessionWallet = useCallback(
+    (address: string) => {
+      const target = wallets.find((item) => item.address === address)
+      if (!target) return
+      if (typeof window === 'undefined') return
+      const nextName = window.prompt('Nuevo nombre para la wallet', target.name ?? '') ?? undefined
+      if (nextName === undefined) return
+      const trimmed = nextName.trim()
+      const normalized = trimmed || undefined
+      if ((target.name ?? undefined) === normalized) return
+      setWallets((prev) =>
+        prev.map((item) => (item.address === address ? { ...item, name: normalized } : item)),
+      )
+      if (activeWallet?.address === address) {
+        setActiveWallet((current) => (current ? { ...current, name: normalized } : current))
+      }
+      if (generatedWallet?.address === address) {
+        setGeneratedWallet((current) => (current ? { ...current, name: normalized } : current))
+      }
+      setStatusMessage(normalized ? `Wallet renombrada a “${normalized}”.` : 'Nombre de la wallet eliminado.')
+    },
+    [activeWallet?.address, generatedWallet, wallets],
+  )
+
+  const handleRenameStoredWallet = useCallback(
+    (address: string) => {
+      const target = storedWallets.find((item) => item.address === address)
+      if (!target) return
+      if (typeof window === 'undefined') return
+      const nextName = window.prompt('Nuevo nombre para la wallet guardada', target.name ?? '') ?? undefined
+      if (nextName === undefined) return
+      const trimmed = nextName.trim()
+      const normalized = trimmed || undefined
+      if ((target.name ?? undefined) === normalized) return
+      const updated: EncryptedWalletShape = { ...target, name: normalized }
+      setStoredWallets((prev) => prev.map((item) => (item.address === address ? updated : item)))
+      if (walletBeingUnlocked?.address === address) {
+        setWalletBeingUnlocked(updated)
+      }
+      persistWallet(updated)
+      setStatusMessage(normalized ? `Wallet renombrada a “${normalized}”.` : 'Nombre de la wallet eliminado.')
+    },
+    [persistWallet, storedWallets, walletBeingUnlocked],
+  )
 
   const isLight = theme === 'light'
   const pageClass = isLight
@@ -397,6 +573,7 @@ function App() {
   const mutedTextClass = isLight ? 'text-sm text-slate-500' : 'text-sm text-slate-400'
   const balanceLabelClass = isLight ? 'text-xs font-semibold uppercase tracking-wide text-slate-500' : 'text-xs font-semibold uppercase tracking-wide text-slate-400'
   const balanceValueClass = isLight ? 'text-4xl font-semibold tracking-tight text-slate-900' : 'text-4xl font-semibold tracking-tight text-white'
+  const walletNameClass = isLight ? 'text-base font-semibold text-slate-700' : 'text-base font-semibold text-slate-200'
   const addressBoxClass = isLight
     ? 'break-all rounded-xl border border-slate-200 bg-white px-3 py-2 font-mono text-xs text-slate-700'
     : 'break-all rounded-xl border border-white/10 bg-slate-900 px-3 py-2 font-mono text-xs text-slate-200'
@@ -429,18 +606,34 @@ function App() {
   const walletLayoutInfoClass = 'space-y-6'
   const panelOverlayClass = 'fixed inset-0 z-40 flex items-end justify-center bg-slate-950/40 px-4 pb-10 pt-12 sm:items-center'
   const panelClass = isLight
-    ? 'w-full max-w-3xl rounded-3xl border border-slate-200 bg-white/95 p-6 shadow-2xl shadow-slate-300/60 backdrop-blur-xl'
-    : 'w-full max-w-3xl rounded-3xl border border-white/10 bg-slate-950/90 p-6 shadow-2xl shadow-indigo-500/40 backdrop-blur-xl'
+    ? 'w-full max-w-3xl rounded-2xl bg-white p-6 shadow-lg shadow-slate-200/40 ring-1 ring-slate-200/60'
+    : 'w-full max-w-3xl rounded-2xl bg-slate-900 p-6 shadow-xl shadow-black/40 ring-1 ring-white/10'
   const panelHeaderClass = 'flex items-start justify-between gap-4'
   const panelTitleClass = isLight ? 'text-xl font-semibold text-slate-900' : 'text-xl font-semibold text-white'
   const panelSubtitleClass = isLight ? 'text-sm text-slate-500' : 'text-sm text-slate-300'
   const panelCloseButtonClass = isLight
     ? 'inline-flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-sm text-slate-500 transition hover:border-slate-400 hover:text-slate-700'
     : 'inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-slate-900 text-sm text-slate-200 transition hover:border-white/30 hover:text-white'
-  const panelSectionTitleClass = isLight ? 'text-xs font-semibold uppercase tracking-wide text-slate-500' : 'text-xs font-semibold uppercase tracking-wide text-slate-300'
-  const panelSectionHelperClass = isLight ? 'text-xs text-slate-400' : 'text-xs text-slate-500'
+  const panelSectionTitleClass = isLight ? 'text-sm font-semibold text-slate-600' : 'text-sm font-semibold text-slate-200'
+  const panelSectionHelperClass = isLight ? 'text-xs text-slate-500' : 'text-xs text-slate-400'
+  const panelFieldLabelClass = isLight ? 'text-xs font-medium text-slate-600' : 'text-xs font-medium text-slate-300'
+  const panelInputClass = isLight
+    ? 'w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-100'
+    : 'w-full rounded-lg border border-white/10 bg-slate-900/70 px-3 py-2 text-sm text-slate-100 focus:border-white/30 focus:outline-none focus:ring-2 focus:ring-white/10'
+  const panelTextareaClass = isLight
+    ? 'w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-100'
+    : 'w-full rounded-lg border border-white/10 bg-slate-900/70 px-3 py-2 text-sm text-slate-100 focus:border-white/30 focus:outline-none focus:ring-2 focus:ring-white/10'
+  const panelPrimaryButtonClass = isLight
+    ? 'inline-flex items-center justify-center rounded-lg bg-slate-900 px-3 py-2 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60'
+    : 'inline-flex items-center justify-center rounded-lg bg-white px-3 py-2 text-sm font-semibold text-slate-900 transition hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-60'
+  const panelSecondaryButtonClass = isLight
+    ? 'inline-flex items-center justify-center rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60'
+    : 'inline-flex items-center justify-center rounded-lg border border-white/20 px-3 py-2 text-sm font-semibold text-slate-100 transition hover:border-white/35 hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60'
+  const panelGhostButtonClass = isLight
+    ? 'inline-flex items-center justify-center rounded-lg border border-transparent px-3 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50'
+    : 'inline-flex items-center justify-center rounded-lg border border-transparent px-3 py-2 text-sm font-medium text-slate-300 transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50'
   const panelListClass = 'space-y-3'
-  const panelDividerClass = isLight ? 'my-6 border-t border-slate-200' : 'my-6 border-t border-white/10'
+  const panelDividerClass = isLight ? 'my-5 border-t border-slate-200' : 'my-5 border-t border-white/10'
   const modalOverlayClass = 'fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 px-4 py-6'
   const modalCardClass = isLight
     ? 'w-full max-w-lg rounded-3xl border border-slate-200 bg-white/95 p-6 shadow-2xl shadow-slate-300/70 backdrop-blur'
@@ -453,20 +646,20 @@ function App() {
   const receiveAddressBoxClass = addressBoxClass
   const receiveHintClass = isLight ? 'text-xs text-slate-500' : 'text-xs text-slate-400'
   const walletItemBaseClass = isLight
-    ? 'flex items-center justify-between rounded-2xl border border-slate-200 bg-white/85 px-4 py-3 shadow-sm transition hover:border-slate-300 hover:shadow'
-    : 'flex items-center justify-between rounded-2xl border border-white/10 bg-slate-900/70 px-4 py-3 shadow-lg transition hover:border-white/20 hover:bg-slate-900/70'
-  const walletItemLabelClass = isLight ? 'text-sm font-semibold text-slate-800' : 'text-sm font-semibold text-slate-100'
+    ? 'flex items-center justify-between rounded-lg border border-slate-200 bg-white px-3 py-2'
+    : 'flex items-center justify-between rounded-lg border border-white/15 bg-slate-800/80 px-3 py-2'
+  const walletItemLabelClass = isLight ? 'text-sm font-medium text-slate-800' : 'text-sm font-medium text-slate-100'
   const walletItemSubClass = isLight ? 'text-xs text-slate-500' : 'text-xs text-slate-400'
   const walletActionButtonClass = isLight
-    ? 'inline-flex items-center justify-center rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-slate-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400'
-    : 'inline-flex items-center justify-center rounded-xl border border-white/20 bg-transparent px-3 py-1.5 text-xs font-semibold text-slate-200 transition hover:border-white/40 hover:text-white disabled:cursor-not-allowed disabled:border-white/10 disabled:text-slate-500'
+    ? 'inline-flex items-center justify-center rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:border-slate-400 hover:bg-slate-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400'
+    : 'inline-flex items-center justify-center rounded-lg border border-white/20 px-3 py-1.5 text-xs font-medium text-slate-200 transition hover:border-white/35 hover:bg-slate-900 disabled:cursor-not-allowed disabled:border-white/10 disabled:text-slate-500'
   const walletActiveBadgeClass = isLight
     ? 'rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-700'
     : 'rounded-full bg-emerald-500/20 px-2 py-0.5 text-xs font-semibold text-emerald-200'
   const storedWalletContainerClass = isLight
-    ? 'space-y-3 rounded-2xl border border-slate-200 bg-white/80 p-4 shadow-sm'
-    : 'space-y-3 rounded-2xl border border-white/10 bg-slate-900/70 p-4 shadow-lg'
-  const walletTagClass = isLight ? 'text-[11px] uppercase tracking-wide text-slate-500' : 'text-[11px] uppercase tracking-wide text-slate-400'
+    ? 'space-y-3 rounded-lg border border-slate-200 bg-white px-3 py-3'
+    : 'space-y-3 rounded-lg border border-white/15 bg-slate-800/80 px-3 py-3'
+  const walletTagClass = isLight ? 'text-xs font-medium text-slate-500' : 'text-xs font-medium text-slate-400'
   const emptyStateClass = isLight ? 'rounded-3xl border border-dashed border-slate-300 bg-white/60 p-6 text-center text-sm text-slate-500' : 'rounded-3xl border border-dashed border-white/20 bg-slate-900/50 p-6 text-center text-sm text-slate-400'
   const tipsListClass = isLight ? 'list-disc space-y-2 pl-5 text-sm text-slate-500' : 'list-disc space-y-2 pl-5 text-sm text-slate-300'
   const statusDotClass = isConnected
@@ -477,13 +670,14 @@ function App() {
   const hasStoredWallets = storedWallets.length > 0
   const walletButtonDisabled = !isConnected && !hasSessionWallets && !hasStoredWallets
   const walletButtonLabel = activeWallet
-    ? shortenAddress(activeWallet.address)
+    ? activeWallet.name ?? shortenAddress(activeWallet.address)
     : hasSessionWallets || hasStoredWallets
       ? 'Cambiar o importar'
       : 'Importar wallet'
   const refreshLabel = isRefreshingBalance ? 'Actualizando…' : 'Actualizar balance'
   const canSend = Boolean(activeWallet && signingClient && !isWalletActivationPending)
   const canReceive = Boolean(activeWallet)
+  const canPersistGeneratedWallet = Boolean(generatedWallet && createWalletPassword.trim().length >= 8)
 
   return (
     <div className={pageClass}>
@@ -540,11 +734,14 @@ function App() {
                 {activeWallet ? (
                   <div className='space-y-6'>
                     <div className='flex flex-wrap items-start justify-between gap-4'>
-                      <div>
-                        <p className={balanceLabelClass}>Balance disponible</p>
-                        <p className={balanceValueClass}>
-                          {displayBalance} {DISPLAY_DENOM}
-                        </p>
+                      <div className='space-y-2'>
+                        {activeWallet.name ? <p className={walletNameClass}>{activeWallet.name}</p> : null}
+                        <div>
+                          <p className={balanceLabelClass}>Balance disponible</p>
+                          <p className={balanceValueClass}>
+                            {displayBalance} {DISPLAY_DENOM}
+                          </p>
+                        </div>
                       </div>
                       <span className={walletTypeBadgeClass}>{activeWallet.type === 'mnemonic' ? 'Mnemonic' : 'Clave privada'}</span>
                     </div>
@@ -678,7 +875,7 @@ function App() {
             <div className={panelHeaderClass}>
               <div>
                 <h2 className={panelTitleClass}>Gestionar wallets</h2>
-                <p className={panelSubtitleClass}>Alterná, importá y desbloqueá wallets cifradas en este dispositivo.</p>
+                <p className={panelSubtitleClass}>Alterná, creá, importá y desbloqueá wallets cifradas en este dispositivo.</p>
               </div>
               <button type='button' onClick={() => setIsWalletPanelOpen(false)} className={panelCloseButtonClass} aria-label='Cerrar gestión de wallets'>
                 ×
@@ -708,16 +905,27 @@ function App() {
                             : 'border-sky-500/60 bg-sky-500/10 ring-2 ring-sky-500/60 animate-pulse'
                           : ''
                       const itemClass = [walletItemBaseClass, highlightClass].filter(Boolean).join(' ')
+                      const displayName = walletItem.name ?? shortenAddress(walletItem.address)
+                      const addressLabel = shortenAddress(walletItem.address)
                       return (
                         <li key={walletItem.address} className={itemClass}>
                           <div className='space-y-1'>
-                            <p className={walletItemLabelClass}>{shortenAddress(walletItem.address)}</p>
+                            <p className={walletItemLabelClass}>{displayName}</p>
                             <p className={walletItemSubClass}>
                               <span className={walletTagClass}>{walletItem.type === 'mnemonic' ? 'Mnemonic' : 'Clave privada'}</span>
+                              <span> · {addressLabel}</span>
                               <span> · {balanceLabel}</span>
                             </p>
                           </div>
                           <div className='flex items-center gap-2'>
+                            <button
+                              type='button'
+                              onClick={() => handleRenameSessionWallet(walletItem.address)}
+                              className={walletActionButtonClass}
+                              disabled={isWalletActivationPending}
+                            >
+                              Renombrar
+                            </button>
                             {isActiveWallet ? (
                               <span className={walletActiveBadgeClass}>Activa</span>
                             ) : (
@@ -762,12 +970,17 @@ function App() {
                           isWalletActivationPending ||
                           (isUnlocking && walletBeingUnlocked?.address !== wallet.address) ||
                           (isCurrent && isUnlocking)
+                        const displayName = wallet.name ?? shortenAddress(wallet.address)
+                        const addressLabel = shortenAddress(wallet.address)
                         return (
                           <div key={wallet.address} className={storedWalletContainerClass}>
                             <div className='flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between'>
                               <div className='space-y-1'>
-                                <p className={walletItemLabelClass}>{shortenAddress(wallet.address)}</p>
-                                <p className={walletItemSubClass}>{wallet.type === 'mnemonic' ? 'Mnemonic' : 'Clave privada'}</p>
+                                <p className={walletItemLabelClass}>{displayName}</p>
+                                <p className={walletItemSubClass}>
+                                  <span className={walletTagClass}>{wallet.type === 'mnemonic' ? 'Mnemonic' : 'Clave privada'}</span>
+                                  <span> · {addressLabel}</span>
+                                </p>
                               </div>
                               <div className='flex items-center gap-2'>
                                 <button
@@ -788,6 +1001,15 @@ function App() {
                                 >
                                   Olvidar
                                 </button>
+                                <button
+                                  type='button'
+                                  onClick={() => handleRenameStoredWallet(wallet.address)}
+                                  className={walletActionButtonClass}
+                                  disabled={isUnlocking || isWalletActivationPending}
+                                  title='Renombrar wallet guardada'
+                                >
+                                  Renombrar
+                                </button>
                               </div>
                             </div>
                             {isCurrent ? (
@@ -806,6 +1028,118 @@ function App() {
                   </section>
                 </>
               ) : null}
+
+              <div className={panelDividerClass} />
+              <section className='space-y-3'>
+                <div>
+                  <p className={panelSectionTitleClass}>Crear wallet nueva</p>
+                  <p className={panelSectionHelperClass}>Generá una mnemonic y activala cuando estés listo.</p>
+                </div>
+                <div className='space-y-3'>
+                  <div className='grid gap-3 sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]'>
+                    <div className='space-y-1'>
+                      <label htmlFor='create-wallet-name' className={panelFieldLabelClass}>
+                        Nombre
+                      </label>
+                      <input
+                        id='create-wallet-name'
+                        value={createWalletName}
+                        onChange={(event) => setCreateWalletName(event.target.value)}
+                        className={panelInputClass}
+                        placeholder='Ej. Ahorros'
+                      />
+                    </div>
+                    <div className='space-y-1'>
+                      <label htmlFor='create-wallet-length' className={panelFieldLabelClass}>
+                        Cantidad de palabras
+                      </label>
+                      <select
+                        id='create-wallet-length'
+                        value={createWalletLength}
+                        onChange={(event) => setCreateWalletLength(Number(event.target.value) === 12 ? 12 : 24)}
+                        className={panelInputClass}
+                      >
+                        <option value={12}>12 palabras</option>
+                        <option value={24}>24 palabras</option>
+                      </select>
+                    </div>
+                  </div>
+                  <button
+                    type='button'
+                    onClick={handleGenerateWallet}
+                    className={panelPrimaryButtonClass}
+                    disabled={isGeneratingWallet}
+                  >
+                    {isGeneratingWallet ? 'Generando…' : 'Generar wallet'}
+                  </button>
+                  {generatedWallet ? (
+                    <div className={storedWalletContainerClass}>
+                      <div className='space-y-2'>
+                        <label htmlFor='generated-mnemonic' className={panelFieldLabelClass}>
+                          Mnemonic generada
+                        </label>
+                        <textarea
+                          id='generated-mnemonic'
+                          value={generatedWallet.mnemonic}
+                          readOnly
+                          className={panelTextareaClass}
+                          rows={3}
+                        />
+                        <div className='flex flex-wrap gap-2'>
+                          <button type='button' onClick={handleCopyGeneratedMnemonic} className={panelGhostButtonClass}>
+                            Copiar mnemonic
+                          </button>
+                          <button type='button' onClick={handleCopyGeneratedAddress} className={panelGhostButtonClass}>
+                            Copiar dirección
+                          </button>
+                        </div>
+                        <p className={panelSectionHelperClass}>Guardala ahora: no volveremos a mostrarla.</p>
+                      </div>
+                      <div className='space-y-2'>
+                        <span className={panelFieldLabelClass}>Dirección</span>
+                        <div className='flex flex-wrap items-center gap-2'>
+                          <span className={addressBoxClass}>{generatedWallet.address}</span>
+                        </div>
+                      </div>
+                      <div className='space-y-2'>
+                        <label htmlFor='create-wallet-password' className={panelFieldLabelClass}>
+                          Contraseña para guardar (mínimo 8 caracteres)
+                        </label>
+                        <input
+                          id='create-wallet-password'
+                          type='password'
+                          value={createWalletPassword}
+                          onChange={(event) => setCreateWalletPassword(event.target.value)}
+                          className={panelInputClass}
+                          placeholder='••••••••'
+                        />
+                        <p className={panelSectionHelperClass}>Solo si querés almacenar la wallet cifrada en este navegador.</p>
+                      </div>
+                      <div className='flex flex-wrap gap-2'>
+                        <button
+                          type='button'
+                          onClick={handleUseGeneratedWallet}
+                          className={panelPrimaryButtonClass}
+                          disabled={!isConnected || isWalletActivationPending || isGeneratingWallet}
+                        >
+                          Activar wallet
+                        </button>
+                        <button
+                          type='button'
+                          onClick={handlePersistGeneratedWallet}
+                          className={panelSecondaryButtonClass}
+                          disabled={!canPersistGeneratedWallet || isSavingGeneratedWallet || isGeneratingWallet}
+                        >
+                          {isSavingGeneratedWallet ? 'Guardando…' : 'Guardar en navegador'}
+                        </button>
+                        <button type='button' onClick={handleDiscardGeneratedWallet} className={panelGhostButtonClass}>
+                          Descartar
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              </section>
 
               <div className={panelDividerClass} />
               <section className='space-y-3'>

@@ -21,6 +21,11 @@ export interface ActiveWallet {
   address: string
   signer: DirectSecp256k1HdWallet | DirectSecp256k1Wallet
   type: WalletSource
+  name?: string
+}
+
+export interface WalletWithSecrets extends ActiveWallet {
+  secrets: StoredSecrets
 }
 
 export interface EncryptedWalletShape {
@@ -29,6 +34,7 @@ export interface EncryptedWalletShape {
   ciphertext: string
   iv: string
   salt: string
+  name?: string
 }
 
 export interface StoredSecrets {
@@ -84,6 +90,7 @@ export async function encryptSecrets(
   password: string,
   type: WalletSource,
   address: string,
+  name?: string,
 ): Promise<EncryptedWalletShape> {
   const iv = crypto.getRandomValues(new Uint8Array(12))
   const salt = crypto.getRandomValues(new Uint8Array(16))
@@ -96,6 +103,7 @@ export async function encryptSecrets(
     ciphertext: bufferToBase64(new Uint8Array(ciphertext)),
     iv: bufferToBase64(iv),
     salt: bufferToBase64(salt),
+    name,
   }
 }
 
@@ -186,7 +194,7 @@ export function isValidAddress(address: string) {
   return ADDRESS_REGEX.test(address.trim())
 }
 
-export async function createSignerFromMnemonic(mnemonic: string) {
+export async function createSignerFromMnemonic(mnemonic: string): Promise<WalletWithSecrets> {
   const normalized = mnemonic.trim().toLowerCase().replace(/\s+/g, ' ')
   if (!validateMnemonic(normalized)) {
     throw new Error('Mnemonic inválido — revisá las palabras y los espacios.')
@@ -207,7 +215,7 @@ export async function createSignerFromMnemonic(mnemonic: string) {
   }
 }
 
-export async function createSignerFromPrivateKey(privateKeyHex: string) {
+export async function createSignerFromPrivateKey(privateKeyHex: string): Promise<WalletWithSecrets> {
   const cleaned = privateKeyHex.trim()
   if (!validatePrivateKeyHex(cleaned)) {
     throw new Error('Clave privada inválida — revisá el formato.')
@@ -248,4 +256,27 @@ export const DEFAULT_CHAIN = {
   denomDecimals: DISPLAY_DECIMALS,
   explorerBaseUrl: EXPLORER_BASE_URL,
   baseDenom: BASE_DENOM,
+}
+
+export interface GeneratedWallet extends WalletWithSecrets {
+  mnemonic: string
+}
+
+export async function generateNewMnemonicWallet(name?: string, length: 12 | 15 | 18 | 21 | 24 = 24): Promise<GeneratedWallet> {
+  const signer = await DirectSecp256k1HdWallet.generate(length, { prefix: ADDRESS_PREFIX })
+  const mnemonic = signer.mnemonic
+  const accounts = await signer.getAccounts()
+  const address = accounts[0]?.address ?? ''
+  if (!address) {
+    throw new Error('No se pudo derivar la dirección de la wallet generada.')
+  }
+  const trimmedName = name?.trim() || undefined
+  return {
+    signer,
+    address,
+    name: trimmedName,
+    mnemonic,
+    secrets: { mnemonic } satisfies StoredSecrets,
+    type: 'mnemonic',
+  }
 }
